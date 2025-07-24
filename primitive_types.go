@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"strconv"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type Number struct{}
@@ -176,3 +178,104 @@ func (s *String) Validate(value any) error {
 }
 
 var _ JFieldType = &String{}
+
+type Ref struct{}
+
+// Scan implements JFieldType.
+func (r *Ref) Scan(ctx context.Context, field JField, row map[string]any) (value any, err error) {
+	v, ok := row[field.Name()]
+	if !ok {
+		return nil, nil // No value found, return nil
+	}
+
+	if v == nil {
+		return nil, nil // If the value is nil, return nil
+	}
+
+	ref, ok := field.(JRef)
+	if !ok {
+		return nil, errors.New("value is of type ref but field is not a ref")
+	}
+
+	objIDHex, ok := v.(string)
+	if ok {
+		rec := NewMongoRecord(ref.RelSchema())
+		refPK, ok := PK(ref.RelSchema())
+		if !ok {
+			return nil, errors.New("no primary key found in referenced schema")
+		}
+
+		rec.SetValue(refPK, objIDHex)
+		return objIDHex, nil // Return the hex representation of the ObjectID
+	}
+
+	return "", errors.New("value is not a object id")
+}
+
+// SetValue implements JFieldType.
+func (r *Ref) SetValue(ctx context.Context, field JField, value any, row map[string]any) error {
+	if err := r.Validate(value); err != nil {
+		return err
+	}
+
+	reflectValue := reflect.ValueOf(value)
+
+	// If the value is nil, set the row field to nil
+	if value == nil || (reflectValue.Kind() == reflect.Pointer && reflectValue.IsNil()) {
+		row[field.Name()] = nil // Set the field to nil if the value is nil
+		return nil
+	}
+
+	if val, ok := tryCovertToString(reflectValue); ok {
+		row[field.Name()] = val
+		return nil
+	}
+
+	record, ok := value.(JRecord)
+	if ok {
+		pkField, ok := PK(record.Schema())
+		if !ok {
+			return errors.New("no primary key found in referenced schema")
+		}
+
+		if pkValue, ok := record.Value(pkField); ok {
+			return r.SetValue(ctx, field, pkValue, row)
+		}
+	}
+
+	return nil
+}
+
+func tryCovertToString(reflectValue reflect.Value) (string, bool) {
+
+	if reflectValue.Kind() != reflect.String {
+		return "", false
+	}
+
+	return reflectValue.String(), true
+}
+
+// Validate implements JFieldType.
+func (r *Ref) Validate(value any) error {
+	if value == nil {
+		return nil // If the value is nil, return nil
+	}
+
+	_, ok := value.(JRecord)
+	if ok {
+		return nil // No error for valid JRecord types
+	}
+
+	reflectValue := reflect.ValueOf(value)
+	if reflectValue.Kind() == reflect.String {
+		if _, err := bson.ObjectIDFromHex(reflectValue.String()); err != nil {
+			return errors.New("value is not a valid ObjectID hex string")
+		}
+		return nil
+	}
+
+	return errors.New("value is not a valid ref string or JRecord")
+
+}
+
+var _ JFieldType = &Ref{}

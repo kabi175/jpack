@@ -21,4 +21,29 @@ func TestSchemaBuilder(t *testing.T) {
 		assert.Equal("id", f.Name(), "Field name should be 'id'")
 	})
 
+	t.Run("add ref field", func(t *testing.T) {
+		assert := assert.New(t)
+
+		userSchema := NewSchema("test_user").Field("id", &Number{}).
+			Field("name", &String{}).
+			Build()
+
+		postSchema := NewSchema("test_post").Field("id", &Number{}).
+			Field("title", &String{}).
+			Ref("author", userSchema).
+			Build()
+
+		authorField, ok := postSchema.Field("author")
+		assert.True(ok, "Field 'author' should exist in post schema")
+		assert.NotNil(authorField, "Field 'author' should not be nil")
+		assert.Equal("author", authorField.Name(), "Field name should be 'author'")
+		assert.IsType(&Ref{}, authorField.Type(), "Field type should be Ref")
+
+		authorRef, ok := authorField.(JRef)
+		assert.True(ok, "Field 'author' should implement JRef")
+		assert.NotNil(authorRef.RelSchema(), "Related schema should not be nil")
+		assert.Equal(userSchema, authorRef.RelSchema(), "Field schema should match user schema")
+
+	})
+
 }

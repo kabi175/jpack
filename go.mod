@@ -18,6 +18,7 @@ require (
 	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
+	github.com/samber/lo v1.51.0
 	github.com/samber/mo v1.14.0 // indirect
 	github.com/stretchr/testify v1.10.0
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
