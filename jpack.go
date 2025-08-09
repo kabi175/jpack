@@ -3,7 +3,6 @@ package jpack
 import (
 	"context"
 
-	"github.com/samber/mo"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
@@ -34,22 +33,6 @@ type Filter interface {
 	And(Filter) Filter
 	Or(Filter) Filter
 	Not() Filter
-}
-
-type SelectField interface {
-}
-
-type JQuery interface {
-	Select() []SelectField
-	Filter() Filter
-}
-
-type JRepository interface {
-	Create(context.Context, []JRecord) error
-	Update(context.Context, []JRecord) error
-	First(context.Context, JQuery) (mo.Option[JRecord], error)
-	FindAll(context.Context, JQuery) ([]JRecord, error)
-	Delete(context.Context, JRecord) error
 }
 
 // NewQuery creates a new query for the given schema and context
