@@ -35,6 +35,8 @@ func main() {
         Field("username", &jpack.String{}).
         Field("email", &jpack.String{}).
         Field("age", &jpack.Number{}).
+        Field("is_active", &jpack.Boolean{}).
+        Field("is_verified", &jpack.Boolean{}).
         FieldWithDefault("status", &jpack.String{}, "active").
         Build()
 
@@ -63,6 +65,8 @@ func main() {
     user.SetValue(getField("username"), "john_doe")
     user.SetValue(getField("email"), "john@example.com")
     user.SetValue(getField("age"), 25)
+    user.SetValue(getField("is_active"), true)
+    user.SetValue(getField("is_verified"), "yes") // Boolean accepts string representations
 
     // Save user
     if err := user.Save(ctx); err != nil {
@@ -78,6 +82,7 @@ func main() {
     // Update user
     user.SetValue(getField("email"), "john.doe@example.com")
     user.SetValue(getField("age"), 26)
+    user.SetValue(getField("is_verified"), 1) // Boolean accepts numeric values (non-zero = true)
 
     if err := user.Save(ctx); err != nil {
         log.Fatal("Failed to update user:", err)

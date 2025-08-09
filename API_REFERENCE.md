@@ -272,6 +272,41 @@ err := dateTimeField.Validate("2024-12-25 10:00:00")        // error (invalid fo
 err := dateTimeField.Validate(123)                          // error (invalid type)
 ```
 
+### Boolean
+
+The `Boolean` type handles boolean values with flexible input conversion.
+
+```go
+type Boolean struct{}
+```
+
+#### Methods
+
+- **`Validate(value any) error`** - Validates that the value is a valid boolean
+- **`Scan(ctx context.Context, field JField, row map[string]any) (any, error)`** - Reads a boolean value from the database
+- **`SetValue(ctx context.Context, field JField, value any, row map[string]any) error`** - Sets a boolean value in the database
+
+**Validation Rules:**
+- Accepts `bool` values
+- Accepts string representations: "true"/"false", "1"/"0", "yes"/"no", "on"/"off", "enabled"/"disabled"
+- Case-insensitive string parsing with whitespace trimming
+- Converts numeric values (non-zero = true, zero = false)
+- Accepts pointer to bool (dereferenced)
+- Accepts `nil` values
+- Rejects invalid string values and unsupported types
+
+**Usage:**
+```go
+booleanField := &jpack.Boolean{}
+err := booleanField.Validate(true)           // nil
+err := booleanField.Validate("yes")          // nil (converts to true)
+err := booleanField.Validate("TRUE")         // nil (converts to true)
+err := booleanField.Validate(1)              // nil (converts to true)
+err := booleanField.Validate(0)              // nil (converts to false)
+err := booleanField.Validate("invalid")      // error (invalid boolean string)
+err := booleanField.Validate([]string{})     // error (unsupported type)
+```
+
 ### Options
 
 The `Options` type handles enum values with dynamic options from a service.

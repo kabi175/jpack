@@ -154,6 +154,14 @@ JPack includes built-in field types and allows custom implementations:
 - Handles nil values and pointers
 - Stores all datetime values in GMT for consistency
 
+**Boolean Type**
+- Validates boolean values with flexible input conversion
+- Supports string representations: "true"/"false", "1"/"0", "yes"/"no", "on"/"off", "enabled"/"disabled"
+- Case-insensitive string parsing with whitespace trimming
+- Converts numeric values (non-zero = true, zero = false)
+- Handles nil values and pointers
+- Automatic type conversion for database operations
+
 **Options Type**
 - Validates string values against a dynamic list of options from a service
 - Uses `OptionService` interface to get available options with `uniqueName` and `displayName`
@@ -168,6 +176,7 @@ JPack includes built-in field types and allows custom implementations:
 stringField := &jpack.String{}
 numberField := &jpack.Number{}
 dateTimeField := &jpack.DateTime{}
+booleanField := &jpack.Boolean{}
 
 // Create an options service
 type StatusService struct{}
@@ -199,6 +208,10 @@ err = numberField.Validate("123")           // nil - valid (converts to int)
 err = dateTimeField.Validate(time.Now())    // nil - valid
 err = dateTimeField.Validate("2024-12-25T10:00:00Z") // nil - valid
 err = dateTimeField.Validate("2024-12-25T10:00:00+05:30") // nil - valid (converts to GMT)
+err = booleanField.Validate(true)           // nil - valid
+err = booleanField.Validate("yes")          // nil - valid (converts to true)
+err = booleanField.Validate(1)              // nil - valid (converts to true)
+err = booleanField.Validate("invalid")      // error - invalid boolean string
 err = optionsField.Validate("active")       // nil - valid (uses uniqueName)
 err = optionsField.Validate("invalid")      // error - not in options list
 ```

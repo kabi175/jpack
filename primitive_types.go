@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -540,3 +541,116 @@ func (o *Options) GetAllOptions(ctx context.Context) ([]Option, error) {
 }
 
 var _ JFieldType = &Options{}
+
+// Boolean represents a boolean field type
+type Boolean struct{}
+
+// Scan implements JFieldType interface for boolean values
+func (b *Boolean) Scan(ctx context.Context, field JField, row map[string]any) (value any, err error) {
+	fieldName := field.Name()
+
+	// Check if field exists in row
+	if rawValue, exists := row[fieldName]; !exists {
+		return nil, nil // Field doesn't exist, return nil
+	} else if rawValue == nil {
+		return nil, nil // Field is nil, return nil
+	} else {
+		// Convert to boolean
+		boolValue, err := convertToBool(rawValue)
+		if err != nil {
+			return nil, err
+		}
+		return boolValue, nil
+	}
+}
+
+// SetValue implements JFieldType interface for boolean values
+func (b *Boolean) SetValue(ctx context.Context, field JField, value any, row map[string]any) error {
+	fieldName := field.Name()
+
+	// Handle nil values
+	if value == nil {
+		row[fieldName] = nil
+		return nil
+	}
+
+	// Convert to boolean
+	boolValue, err := convertToBool(value)
+	if err != nil {
+		return err
+	}
+
+	row[fieldName] = boolValue
+	return nil
+}
+
+// Validate implements JFieldType interface for boolean values
+func (b *Boolean) Validate(value any) error {
+	if value == nil {
+		return nil // Nil values are valid
+	}
+
+	// Try to convert to boolean to validate
+	_, err := convertToBool(value)
+	return err
+}
+
+// convertToBool converts various types to boolean
+func convertToBool(value any) (bool, error) {
+	reflectValue := reflect.ValueOf(value)
+
+	// Handle nil
+	if !reflectValue.IsValid() {
+		return false, nil
+	}
+
+	// Handle direct boolean
+	if reflectValue.Kind() == reflect.Bool {
+		return reflectValue.Bool(), nil
+	}
+
+	// Handle pointer to boolean
+	if reflectValue.Kind() == reflect.Ptr {
+		if reflectValue.IsNil() {
+			return false, nil
+		}
+		elem := reflectValue.Elem()
+		if elem.Kind() == reflect.Bool {
+			return elem.Bool(), nil
+		}
+	}
+
+	// Handle string representations
+	if reflectValue.Kind() == reflect.String {
+		str := reflectValue.String()
+		switch strings.ToLower(strings.TrimSpace(str)) {
+		case "true", "1", "yes", "on", "enabled":
+			return true, nil
+		case "false", "0", "no", "off", "disabled", "":
+			return false, nil
+		default:
+			return false, errors.New("invalid boolean string value")
+		}
+	}
+
+	// Handle numeric values
+	if reflectValue.Kind() == reflect.Int || reflectValue.Kind() == reflect.Int8 ||
+		reflectValue.Kind() == reflect.Int16 || reflectValue.Kind() == reflect.Int32 ||
+		reflectValue.Kind() == reflect.Int64 {
+		return reflectValue.Int() != 0, nil
+	}
+
+	if reflectValue.Kind() == reflect.Uint || reflectValue.Kind() == reflect.Uint8 ||
+		reflectValue.Kind() == reflect.Uint16 || reflectValue.Kind() == reflect.Uint32 ||
+		reflectValue.Kind() == reflect.Uint64 {
+		return reflectValue.Uint() != 0, nil
+	}
+
+	if reflectValue.Kind() == reflect.Float32 || reflectValue.Kind() == reflect.Float64 {
+		return reflectValue.Float() != 0, nil
+	}
+
+	return false, errors.New("value cannot be converted to boolean")
+}
+
+var _ JFieldType = &Boolean{}
