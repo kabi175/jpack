@@ -73,6 +73,7 @@ func (m *mongoRecord) IsNew() bool {
 func (m *mongoRecord) Save(ctx context.Context) error {
 
 	coll := MustConn(ctx).Collection(m.Schema().Name())
+	pkField, _ := PK(m.schema)
 	if m.IsNew() {
 		convertToBSON, err := m.convertToBSON(ctx, m.record)
 		if err != nil {
@@ -87,7 +88,7 @@ func (m *mongoRecord) Save(ctx context.Context) error {
 		// m.record[defaultMongoPK] = res.InsertedID
 		objID, ok := res.InsertedID.(bson.ObjectID)
 		if ok {
-			m.record["id"] = objID.Hex() // Store the ID as a string in the record
+			m.record[pkField.Name()] = objID.Hex() // Store the ID as a string in the record
 		}
 		// After inserting, we can set the original record to the current record
 		m.originalRecord = m.record
@@ -97,7 +98,7 @@ func (m *mongoRecord) Save(ctx context.Context) error {
 		return nil
 	} else {
 		convertToBSON, err := m.convertToBSON(ctx, m.record)
-		delete(convertToBSON, "id")           // Remove the id field from the update
+		delete(convertToBSON, pkField.Name()) // Remove the id field from the update
 		delete(convertToBSON, defaultMongoPK) // Remove the mongo id field from the update
 		if err != nil {
 			log.Error().Err(err).Msg("jpack: failed to convert record to BSON")
@@ -122,9 +123,10 @@ func (m *mongoRecord) Save(ctx context.Context) error {
 }
 
 func (m *mongoRecord) objectID() (bson.ObjectID, error) {
-	pkID, ok := m.record["id"]
+	pkField, _ := PK(m.schema)
+	pkID, ok := m.record[pkField.Name()]
 	if !ok {
-		pkID, ok = m.originalRecord["id"]
+		pkID, ok = m.originalRecord[pkField.Name()]
 		if !ok {
 			return bson.ObjectID{}, errors.New("record id can't be empty")
 		}
@@ -361,7 +363,8 @@ func (q *mongoQuery) Execute() ([]JRecord, error) {
 
 		// Convert ObjectID to string for the id field
 		if id, ok := doc["_id"].(bson.ObjectID); ok {
-			record.originalRecord["id"] = id.Hex()
+			pkField, _ := PK(q.Schema())
+			record.originalRecord[pkField.Name()] = id.Hex()
 		}
 
 		// Convert other fields
@@ -422,7 +425,8 @@ func (q *mongoQuery) First() (JRecord, error) {
 
 	// Convert ObjectID to string for the id field
 	if id, ok := doc["_id"].(bson.ObjectID); ok {
-		record.originalRecord["id"] = id.Hex()
+		pkField, _ := PK(q.Schema())
+		record.originalRecord[pkField.Name()] = id.Hex()
 	}
 
 	// Convert other fields
