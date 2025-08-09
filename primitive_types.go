@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
@@ -282,3 +283,111 @@ func (r *Ref) Validate(value any) error {
 }
 
 var _ JFieldType = &Ref{}
+
+type DateTime struct{}
+
+// Scan implements JFieldType.
+func (dt *DateTime) Scan(ctx context.Context, field JField, row map[string]any) (value any, err error) {
+	v, ok := row[field.Name()]
+	if !ok {
+		return nil, nil // No value found, return nil
+	}
+
+	if v == nil {
+		return nil, nil // If the value is nil, return nil
+	}
+
+	reflectValue := reflect.ValueOf(v)
+
+	switch reflectValue.Kind() {
+	case reflect.String:
+		// Parse RFC3339 format string and convert to GMT
+		t, err := time.Parse(time.RFC3339, reflectValue.String())
+		if err != nil {
+			return nil, errors.New("value is not a valid RFC3339 datetime string")
+		}
+		// Convert to GMT timezone
+		return t.UTC(), nil
+	case reflect.Struct:
+		// Check if it's a time.Time
+		if t, ok := v.(time.Time); ok {
+			// Convert to GMT timezone
+			return t.UTC(), nil
+		}
+		return nil, errors.New("value is not a time.Time struct")
+	default:
+		return nil, errors.New("value is not a valid datetime type")
+	}
+}
+
+// SetValue implements JFieldType.
+func (dt *DateTime) SetValue(ctx context.Context, field JField, value any, row map[string]any) error {
+	reflectValue := reflect.ValueOf(value)
+
+	// If the value is nil, set the row field to nil
+	if value == nil || (reflectValue.Kind() == reflect.Pointer && reflectValue.IsNil()) {
+		row[field.Name()] = nil // Set the field to nil if the value is nil
+		return nil
+	}
+
+	if err := dt.Validate(value); err != nil {
+		return err
+	}
+
+	columnName := field.Name()
+
+	switch v := value.(type) {
+	case time.Time:
+		// Store in GMT timezone
+		row[columnName] = v.UTC()
+	case string:
+		// Parse RFC3339 format string and convert to GMT
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return errors.New("value is not a valid RFC3339 datetime string")
+		}
+		row[columnName] = t.UTC()
+	default:
+		return errors.New("value is not a valid datetime type")
+	}
+
+	return nil
+}
+
+// Validate implements JFieldType.
+func (dt *DateTime) Validate(value any) error {
+	if value == nil {
+		return nil // If the value is nil, return nil
+	}
+
+	reflectValue := reflect.ValueOf(value)
+
+	// Handle pointer types
+	if reflectValue.Kind() == reflect.Pointer {
+		if reflectValue.IsNil() {
+			return nil // If the pointer is nil, return nil
+		}
+		// Handle pointer types, dereferencing to get the value
+		reflectValue = reflectValue.Elem()
+	}
+
+	switch reflectValue.Kind() {
+	case reflect.Struct:
+		// Check if it's a time.Time
+		if _, ok := reflectValue.Interface().(time.Time); ok {
+			return nil // No error for valid time.Time types
+		}
+		return errors.New("value is a struct but not a time.Time")
+	case reflect.String:
+		// Validate RFC3339 format
+		_, err := time.Parse(time.RFC3339, reflectValue.String())
+		if err != nil {
+			return errors.Join(errors.New("value is not a valid RFC3339 datetime string"), err)
+		}
+		return nil // No error for valid RFC3339 string types
+	default:
+		return errors.New("value is not a valid datetime type (expected time.Time or RFC3339 string)")
+	}
+}
+
+var _ JFieldType = &DateTime{}

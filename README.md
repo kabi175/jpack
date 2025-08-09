@@ -147,16 +147,27 @@ JPack includes built-in field types and allows custom implementations:
 - Handles nil values and pointers
 - Automatic conversion to int for storage
 
+**DateTime Type**
+- Validates `time.Time` values and RFC3339 formatted strings
+- Automatically converts all times to GMT (UTC) timezone
+- Supports timezone-aware strings (e.g., "2024-12-25T10:00:00+05:30")
+- Handles nil values and pointers
+- Stores all datetime values in GMT for consistency
+
 ```go
 // Using built-in types
 stringField := &jpack.String{}
 numberField := &jpack.Number{}
+dateTimeField := &jpack.DateTime{}
 
 // Validate values
 err := stringField.Validate("hello")        // nil - valid
 err = stringField.Validate(123)             // error - not a string
 err = numberField.Validate(42)              // nil - valid
 err = numberField.Validate("123")           // nil - valid (converts to int)
+err = dateTimeField.Validate(time.Now())    // nil - valid
+err = dateTimeField.Validate("2024-12-25T10:00:00Z") // nil - valid
+err = dateTimeField.Validate("2024-12-25T10:00:00+05:30") // nil - valid (converts to GMT)
 ```
 
 #### Custom Field Types

@@ -240,6 +240,38 @@ err := numberField.Validate("123")  // nil (converts to int)
 err := numberField.Validate("abc")  // error
 ```
 
+### DateTime
+
+The `DateTime` type handles datetime values with automatic GMT timezone conversion.
+
+```go
+type DateTime struct{}
+```
+
+#### Methods
+
+- **`Validate(value any) error`** - Validates that the value is a valid datetime
+- **`Scan(ctx context.Context, field JField, row map[string]any) (any, error)`** - Reads a datetime value from the database
+- **`SetValue(ctx context.Context, field JField, value any, row map[string]any) error`** - Sets a datetime value in the database
+
+**Validation Rules:**
+- Accepts `time.Time` values
+- Accepts RFC3339 formatted strings (e.g., "2024-12-25T10:00:00Z")
+- Accepts RFC3339 strings with timezone offsets (e.g., "2024-12-25T10:00:00+05:30")
+- Accepts pointer to time.Time (dereferenced)
+- Accepts `nil` values
+- Automatically converts all times to GMT (UTC) timezone for storage
+
+**Usage:**
+```go
+dateTimeField := &jpack.DateTime{}
+err := dateTimeField.Validate(time.Now())                    // nil
+err := dateTimeField.Validate("2024-12-25T10:00:00Z")       // nil
+err := dateTimeField.Validate("2024-12-25T10:00:00+05:30")  // nil (converts to GMT)
+err := dateTimeField.Validate("2024-12-25 10:00:00")        // error (invalid format)
+err := dateTimeField.Validate(123)                          // error (invalid type)
+```
+
 ## Record Operations
 
 ### MongoRecord
