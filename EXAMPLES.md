@@ -1121,4 +1121,311 @@ func TestBenchmarks(t *testing.T) {
 }
 ```
 
+## MongoDB Query Examples
+
+### Basic Query Operations
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/kabi175/jpack"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+)
+
+func main() {
+	// Connect to MongoDB
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://localhost:27017"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer client.Disconnect(context.Background())
+
+	// Create schema
+	userSchema := jpack.NewSchema("users").
+		Field("id", &jpack.String{}).
+		Field("name", &jpack.String{}).
+		Field("email", &jpack.String{}).
+		Field("age", &jpack.Number{}).
+		Build()
+
+	// Set up context with MongoDB connection
+	ctx := context.WithValue(context.Background(), jpack.Conn, client.Database("test"))
+
+	// Create a query
+	query := jpack.NewMongoQuery(ctx, userSchema)
+
+	// Execute query to get all records
+	records, err := query.Execute()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Found %d users\n", len(records))
+
+	// Use query methods
+	query = query.Limit(5).OrderBy(userSchema.Field("name")[0])
+	records, err = query.Execute()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Get first record
+	firstRecord, err := query.First()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Count records
+	count, err := query.Count()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Printf("Count: %d\n", count)
+}
+```
+
+### Query with References
+
+```go
+// Create schemas with references
+userSchema := jpack.NewSchema("users").
+	Field("id", &jpack.String{}).
+	Field("name", &jpack.String{}).
+	Build()
+
+postSchema := jpack.NewSchema("posts").
+	Field("id", &jpack.String{}).
+	Field("title", &jpack.String{}).
+	Ref("author", userSchema).
+	Build()
+
+// Query with eager loading
+query := jpack.NewMongoQuery(ctx, postSchema)
+query = query.With(postSchema.Field("author")[0].(jpack.JRef), func(schema jpack.JSchema, q jpack.Query) jpack.Query {
+	return q.Limit(10)
+})
+
+records, err := query.Execute()
+if err != nil {
+	log.Fatal(err)
+}
+
+// Records will have the author field populated
+for _, record := range records {
+	author, _ := record.Value(postSchema.Field("author")[0])
+	if authorRecord, ok := author.(jpack.JRecord); ok {
+		name, _ := authorRecord.Value(userSchema.Field("name")[0])
+		fmt.Printf("Post by: %s\n", name)
+	}
+}
+```
+
+### Query with Filters using Resolver System
+
+The new resolver system makes it easy to add custom comparators and convert them to MongoDB filters:
+
+```go
+// Create a query with filters using the new comparator system
+query := jpack.NewMongoQuery(ctx, userSchema)
+
+// Simple equality filter
+filter := jpack.Eq(userSchema.Field("name")[0], "John")
+query = query.Where(filter)
+
+// Range filter
+rangeFilter := jpack.Between(userSchema.Field("age")[0], 18, 65)
+query = query.Where(rangeFilter)
+
+// Complex filter with AND/OR logic
+complexFilter := jpack.And(
+	jpack.Or(
+		jpack.Eq(userSchema.Field("name")[0], "John"),
+		jpack.Eq(userSchema.Field("name")[0], "Jane"),
+	),
+	jpack.Gte(userSchema.Field("age")[0], 25),
+)
+query = query.Where(complexFilter)
+
+// Execute the query
+records, err := query.Execute()
+if err != nil {
+	log.Fatal(err)
+}
+
+fmt.Printf("Found %d users matching the filter\n", len(records))
+```
+
+### Custom Resolvers
+
+Service teams can easily add custom resolvers for specialized operations:
+
+```go
+// Register a custom resolver for case-insensitive search
+jpack.RegisterFilterResolver("CASE_INSENSITIVE", func(filter jpack.Filter) bson.M {
+	field := filter.Field()
+	value := filter.Value()
+	if field == nil {
+		return nil
+	}
+	if pattern, ok := value.(string); ok {
+		return bson.M{field.Name(): bson.M{"$regex": pattern, "$options": "i"}}
+	}
+	return nil
+})
+
+// Register a custom resolver for array contains
+jpack.RegisterFilterResolver("ARRAY_CONTAINS", func(filter jpack.Filter) bson.M {
+	field := filter.Field()
+	value := filter.Value()
+	if field == nil {
+		return nil
+	}
+	return bson.M{field.Name(): bson.M{"$elemMatch": bson.M{"$eq": value}}}
+})
+
+// Register a custom resolver for geo-spatial queries
+jpack.RegisterFilterResolver("GEO_NEAR", func(filter jpack.Filter) bson.M {
+	field := filter.Field()
+	value := filter.Value()
+	if field == nil {
+		return nil
+	}
+	if coords, ok := value.([]float64); ok && len(coords) == 2 {
+		return bson.M{
+			"$geoNear": bson.M{
+				"near": bson.M{
+					"type":        "Point",
+					"coordinates": coords,
+				},
+				"distanceField": field.Name(),
+				"spherical":     true,
+			},
+		}
+	}
+	return nil
+})
+
+// Use custom resolvers in queries
+query := jpack.NewMongoQuery(ctx, userSchema)
+
+// Create custom filters
+caseInsensitiveFilter := &jpack.filterImpl{
+	field:    userSchema.Field("name")[0],
+	value:    "john",
+	operator: "CASE_INSENSITIVE",
+}
+
+arrayContainsFilter := &jpack.filterImpl{
+	field:    userSchema.Field("tags")[0],
+	value:    "admin",
+	operator: "ARRAY_CONTAINS",
+}
+
+geoNearFilter := &jpack.filterImpl{
+	field:    userSchema.Field("location")[0],
+	value:    []float64{-73.935242, 40.730610},
+	operator: "GEO_NEAR",
+}
+
+// Use the custom filters
+query = query.Where(caseInsensitiveFilter)
+query = query.Where(arrayContainsFilter)
+query = query.Where(geoNearFilter)
+
+records, err := query.Execute()
+```
+
+### Service-Specific Resolvers
+
+Different service teams can define resolvers specific to their domain:
+
+```go
+// E-commerce service resolvers
+func registerEcommerceResolvers() {
+	// Price range resolver
+	jpack.RegisterFilterResolver("PRICE_RANGE", func(filter jpack.Filter) bson.M {
+		field := filter.Field()
+		value := filter.Value()
+		if field == nil {
+			return nil
+		}
+		if rangeValues, ok := value.([]any); ok && len(rangeValues) == 2 {
+			return bson.M{
+				field.Name(): bson.M{
+					"$gte": rangeValues[0],
+					"$lte": rangeValues[1],
+				},
+			}
+		}
+		return nil
+	})
+
+	// Category resolver
+	jpack.RegisterFilterResolver("IN_CATEGORY", func(filter jpack.Filter) bson.M {
+		field := filter.Field()
+		value := filter.Value()
+		if field == nil {
+			return nil
+		}
+		if categories, ok := value.([]any); ok {
+			return bson.M{field.Name(): bson.M{"$in": categories}}
+		}
+		return nil
+	})
+}
+
+// User service resolvers
+func registerUserResolvers() {
+	// Active users resolver
+	jpack.RegisterFilterResolver("ACTIVE_USERS", func(filter jpack.Filter) bson.M {
+		return bson.M{
+			"status": bson.M{"$eq": "active"},
+			"last_login": bson.M{"$gte": time.Now().AddDate(0, 0, -30)},
+		}
+	})
+}
+
+// Initialize service-specific resolvers
+func init() {
+	registerEcommerceResolvers()
+	registerUserResolvers()
+}
+```
+
+### Advanced Filter Examples
+
+```go
+// Multiple filter types using the new system
+query := jpack.NewMongoQuery(ctx, userSchema)
+
+// IN filter
+query = query.Where(jpack.In(userSchema.Field("status")[0], []any{"active", "pending"}))
+
+// LIKE filter (regex in MongoDB)
+query = query.Where(jpack.Like(userSchema.Field("email")[0], "@gmail.com$"))
+
+// EXISTS filter
+query = query.Where(jpack.Exists(userSchema.Field("phone")[0]))
+
+// NOT filter
+query = query.Where(jpack.Not(jpack.Eq(userSchema.Field("status")[0], "deleted")))
+
+// Combined filters
+filter := jpack.And(
+	jpack.Gte(userSchema.Field("age")[0], 18),
+	jpack.Lt(userSchema.Field("age")[0], 65),
+	jpack.Exists(userSchema.Field("email")[0]),
+)
+
+query = query.Where(filter)
+records, err := query.Execute()
+```
+
 This comprehensive examples file demonstrates various use cases and patterns for using JPack effectively in real-world applications.

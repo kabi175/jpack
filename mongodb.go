@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type key string
@@ -214,3 +215,300 @@ func NewMongoRecord(schema JSchema) *mongoRecord {
 		record:         make(map[string]any),
 	}
 }
+
+// mongoQuery implements the Query interface for MongoDB
+type mongoQuery struct {
+	schema     JSchema
+	ctx        context.Context
+	collection *mongo.Collection
+
+	// Query building fields
+	projection bson.M
+	where      []bson.M
+	orderBy    bson.D
+	limit      *int64
+	offset     *int64
+	withRefs   map[string]func(JSchema, Query) Query
+}
+
+// NewMongoQuery creates a new MongoDB query for the given schema
+func NewMongoQuery(ctx context.Context, schema JSchema) Query {
+	db := MustConn(ctx)
+	collection := db.Collection(schema.Name())
+
+	return &mongoQuery{
+		schema:     schema,
+		ctx:        ctx,
+		collection: collection,
+		projection: bson.M{},
+		where:      []bson.M{},
+		orderBy:    bson.D{},
+		withRefs:   make(map[string]func(JSchema, Query) Query),
+	}
+}
+
+// Schema implements Query
+func (q *mongoQuery) Schema() JSchema {
+	return q.schema
+}
+
+// Select implements Query
+func (q *mongoQuery) Select(fields ...JField) Query {
+	projection := bson.M{}
+
+	// Always include _id for MongoDB
+	projection["_id"] = 1
+
+	for _, field := range fields {
+		if field.Schema().Name() == q.schema.Name() {
+			projection[field.Name()] = 1
+		}
+	}
+
+	q.projection = projection
+	return q
+}
+
+// With implements Query for eager loading
+func (q *mongoQuery) With(ref JRef, fn func(JSchema, Query) Query) Query {
+	q.withRefs[ref.Name()] = fn
+	return q
+}
+
+// Where implements Query
+func (q *mongoQuery) Where(filter Filter) Query {
+	// Convert the filter to MongoDB BSON format using the resolver
+	mongoFilter := ResolveFilter(filter)
+	if mongoFilter != nil {
+		q.where = append(q.where, mongoFilter)
+	}
+	return q
+}
+
+// OrderBy implements Query
+func (q *mongoQuery) OrderBy(fields ...JField) Query {
+	orderBy := bson.D{}
+
+	for _, field := range fields {
+		if field.Schema().Name() == q.schema.Name() {
+			// Default to ascending order
+			orderBy = append(orderBy, bson.E{Key: field.Name(), Value: 1})
+		}
+	}
+
+	q.orderBy = orderBy
+	return q
+}
+
+// Limit implements Query
+func (q *mongoQuery) Limit(limit int) Query {
+	limit64 := int64(limit)
+	q.limit = &limit64
+	return q
+}
+
+// Offset implements Query
+func (q *mongoQuery) Offset(offset int) Query {
+	offset64 := int64(offset)
+	q.offset = &offset64
+	return q
+}
+
+// Execute implements Query
+func (q *mongoQuery) Execute() ([]JRecord, error) {
+	// Build the filter
+	filter := bson.M{}
+	if len(q.where) > 0 {
+		filter = bson.M{"$and": q.where}
+	}
+
+	// Build options
+	opts := options.Find()
+
+	if len(q.projection) > 0 {
+		opts.SetProjection(q.projection)
+	}
+
+	if len(q.orderBy) > 0 {
+		opts.SetSort(q.orderBy)
+	}
+
+	if q.limit != nil {
+		opts.SetLimit(*q.limit)
+	}
+
+	if q.offset != nil {
+		opts.SetSkip(*q.offset)
+	}
+
+	// Execute the query
+	cursor, err := q.collection.Find(q.ctx, filter, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(q.ctx)
+
+	var records []JRecord
+
+	for cursor.Next(q.ctx) {
+		var doc bson.M
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, err
+		}
+
+		// Convert BSON document to mongoRecord
+		record := NewMongoRecord(q.schema)
+
+		// Convert ObjectID to string for the id field
+		if id, ok := doc["_id"].(bson.ObjectID); ok {
+			record.originalRecord["id"] = id.Hex()
+		}
+
+		// Convert other fields
+		for key, value := range doc {
+			if key != "_id" {
+				record.originalRecord[key] = value
+			}
+		}
+
+		records = append(records, record)
+	}
+
+	// Handle eager loading
+	if len(q.withRefs) > 0 {
+		if err := q.loadReferences(records); err != nil {
+			return nil, err
+		}
+	}
+
+	return records, nil
+}
+
+// First implements Query
+func (q *mongoQuery) First() (JRecord, error) {
+	// Build the filter
+	filter := bson.M{}
+	if len(q.where) > 0 {
+		filter = bson.M{"$and": q.where}
+	}
+
+	// Build options
+	opts := options.FindOne()
+
+	if len(q.projection) > 0 {
+		opts.SetProjection(q.projection)
+	}
+
+	if len(q.orderBy) > 0 {
+		opts.SetSort(q.orderBy)
+	}
+
+	if q.offset != nil {
+		opts.SetSkip(*q.offset)
+	}
+
+	// Execute the query
+	var doc bson.M
+	err := q.collection.FindOne(q.ctx, filter, opts).Decode(&doc)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	// Convert BSON document to mongoRecord
+	record := NewMongoRecord(q.schema)
+
+	// Convert ObjectID to string for the id field
+	if id, ok := doc["_id"].(bson.ObjectID); ok {
+		record.originalRecord["id"] = id.Hex()
+	}
+
+	// Convert other fields
+	for key, value := range doc {
+		if key != "_id" {
+			record.originalRecord[key] = value
+		}
+	}
+
+	// Handle eager loading
+	if len(q.withRefs) > 0 {
+		if err := q.loadReferences([]JRecord{record}); err != nil {
+			return nil, err
+		}
+	}
+
+	return record, nil
+}
+
+// Count implements Query
+func (q *mongoQuery) Count() (int, error) {
+	// Build the filter
+	filter := bson.M{}
+	if len(q.where) > 0 {
+		filter = bson.M{"$and": q.where}
+	}
+
+	// Execute the count query
+	count, err := q.collection.CountDocuments(q.ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(count), nil
+}
+
+// loadReferences handles eager loading of referenced records
+func (q *mongoQuery) loadReferences(records []JRecord) error {
+	for refName, refFn := range q.withRefs {
+		// Find the reference field
+		refField, ok := q.schema.Field(refName)
+		if !ok {
+			continue
+		}
+
+		ref, ok := refField.(JRef)
+		if !ok {
+			continue
+		}
+
+		// Create a query for the referenced schema
+		refQuery := NewMongoQuery(q.ctx, ref.RelSchema())
+
+		// Apply the custom function to the reference query
+		refQuery = refFn(ref.RelSchema(), refQuery)
+
+		// Execute the reference query
+		refRecords, err := refQuery.Execute()
+		if err != nil {
+			return err
+		}
+
+		// Create a map of reference records by ID for quick lookup
+		refMap := make(map[string]JRecord)
+		for _, refRecord := range refRecords {
+			if id, ok := refRecord.Value(refField); ok {
+				if idStr, ok := id.(string); ok {
+					refMap[idStr] = refRecord
+				}
+			}
+		}
+
+		// Attach reference records to the main records
+		for _, record := range records {
+			if refID, ok := record.Value(refField); ok {
+				if refIDStr, ok := refID.(string); ok {
+					if refRecord, exists := refMap[refIDStr]; exists {
+						// Set the reference record in the main record
+						record.SetValue(refField, refRecord)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+var _ Query = &mongoQuery{}
