@@ -3,6 +3,7 @@ package jpack
 import (
 	"context"
 	"errors"
+	"math"
 	"reflect"
 	"strconv"
 
@@ -92,6 +93,8 @@ func convertToInt(reflectValue reflect.Value) (int, error) {
 		} else {
 			return 0, errors.New("value cannot be converted to integer")
 		}
+	case reflect.Float32, reflect.Float64:
+		return int(math.Round(reflectValue.Float())), nil
 
 	case reflect.String:
 		// Attempt to parse the string as an integer
