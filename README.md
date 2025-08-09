@@ -154,13 +154,44 @@ JPack includes built-in field types and allows custom implementations:
 - Handles nil values and pointers
 - Stores all datetime values in GMT for consistency
 
+**Options Type**
+- Validates string values against a dynamic list of options from a service
+- Uses `OptionService` interface to get available options with `uniqueName` and `displayName`
+- `uniqueName` is used for database storage and validation
+- `displayName` is used for client display purposes
+- Supports dynamic option lists that can change at runtime
+- Handles nil values and pointers
+- Provides clear error messages for invalid options
+
 ```go
 // Using built-in types
 stringField := &jpack.String{}
 numberField := &jpack.Number{}
 dateTimeField := &jpack.DateTime{}
 
-// Validate values
+// Create an options service
+type StatusService struct{}
+func (s *StatusService) GetOptions(ctx context.Context) ([]jpack.Option, error) {
+    return []jpack.Option{
+        {UniqueName: "active", DisplayName: "Active"},
+        {UniqueName: "inactive", DisplayName: "Inactive"},
+        {UniqueName: "pending", DisplayName: "Pending"},
+    }, nil
+}
+
+// Or use the built-in in-memory service
+statusOptions := []jpack.Option{
+    {UniqueName: "active", DisplayName: "Active"},
+    {UniqueName: "inactive", DisplayName: "Inactive"},
+    {UniqueName: "pending", DisplayName: "Pending"},
+}
+inMemoryService := jpack.NewInMemoryOptionService(statusOptions)
+
+optionsField := jpack.NewOptions(&StatusService{})
+// or
+optionsField := jpack.NewOptions(inMemoryService)
+
+// Validate values (uses uniqueName for validation)
 err := stringField.Validate("hello")        // nil - valid
 err = stringField.Validate(123)             // error - not a string
 err = numberField.Validate(42)              // nil - valid
@@ -168,6 +199,8 @@ err = numberField.Validate("123")           // nil - valid (converts to int)
 err = dateTimeField.Validate(time.Now())    // nil - valid
 err = dateTimeField.Validate("2024-12-25T10:00:00Z") // nil - valid
 err = dateTimeField.Validate("2024-12-25T10:00:00+05:30") // nil - valid (converts to GMT)
+err = optionsField.Validate("active")       // nil - valid (uses uniqueName)
+err = optionsField.Validate("invalid")      // error - not in options list
 ```
 
 #### Custom Field Types

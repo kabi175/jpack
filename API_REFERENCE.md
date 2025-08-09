@@ -272,6 +272,162 @@ err := dateTimeField.Validate("2024-12-25 10:00:00")        // error (invalid fo
 err := dateTimeField.Validate(123)                          // error (invalid type)
 ```
 
+### Options
+
+The `Options` type handles enum values with dynamic options from a service.
+
+```go
+type Options struct {
+    service OptionService
+}
+```
+
+#### Option Struct
+
+```go
+type Option struct {
+    UniqueName  string `json:"uniqueName"`
+    DisplayName string `json:"displayName"`
+}
+```
+
+#### OptionService Interface
+
+```go
+type OptionService interface {
+    GetOptions(ctx context.Context) ([]Option, error)
+}
+```
+
+#### Functions
+
+#### NewOptions
+
+```go
+func NewOptions(service OptionService) *Options
+```
+
+Creates a new Options FieldType with the given service.
+
+**Parameters:**
+- `service` - The service that provides available options
+
+**Returns:**
+- `*Options` - A new Options FieldType instance
+
+#### Methods
+
+- **`Validate(value any) error`** - Validates that the value is in the list of available options (uses uniqueName)
+- **`Scan(ctx context.Context, field JField, row map[string]any) (any, error)`** - Reads an options value from the database
+- **`SetValue(ctx context.Context, field JField, value any, row map[string]any) error`** - Sets an options value in the database
+- **`GetDisplayName(ctx context.Context, uniqueName string) (string, error)`** - Gets display name for a unique name
+- **`GetUniqueName(ctx context.Context, displayName string) (string, error)`** - Gets unique name for a display name
+- **`GetAllOptions(ctx context.Context) ([]Option, error)`** - Gets all available options
+
+**Validation Rules:**
+- Accepts `string` values that match the `uniqueName` in the service's options list
+- Accepts `nil` values
+- Accepts pointer to string (dereferenced)
+- Rejects values not in the service's options list
+- Rejects non-string values
+
+**Usage:**
+```go
+// Define a service
+type StatusService struct{}
+func (s *StatusService) GetOptions(ctx context.Context) ([]jpack.Option, error) {
+    return []jpack.Option{
+        {UniqueName: "active", DisplayName: "Active"},
+        {UniqueName: "inactive", DisplayName: "Inactive"},
+        {UniqueName: "pending", DisplayName: "Pending"},
+    }, nil
+}
+
+// Create options field type
+optionsField := jpack.NewOptions(&StatusService{})
+
+// Validate values (uses uniqueName)
+err := optionsField.Validate("active")     // nil
+err := optionsField.Validate("invalid")    // error (not in options)
+err := optionsField.Validate(123)          // error (not a string)
+
+// Get display name for client
+displayName, err := optionsField.GetDisplayName(ctx, "active") // "Active"
+
+// Get unique name from display name
+uniqueName, err := optionsField.GetUniqueName(ctx, "Active") // "active"
+```
+
+### InMemoryOptionService
+
+The `InMemoryOptionService` provides a thread-safe in-memory implementation of the `OptionService` interface.
+
+```go
+type InMemoryOptionService struct {
+    options []Option
+    mu      sync.RWMutex
+}
+```
+
+#### Functions
+
+#### NewInMemoryOptionService
+
+```go
+func NewInMemoryOptionService(options []Option) *InMemoryOptionService
+```
+
+Creates a new in-memory option service with the given options.
+
+**Parameters:**
+- `options` - Initial list of options (can be nil for empty service)
+
+**Returns:**
+- `*InMemoryOptionService` - A new in-memory option service instance
+
+#### Methods
+
+- **`GetOptions(ctx context.Context) ([]Option, error)`** - Returns all options (implements OptionService)
+- **`AddOption(option Option)`** - Adds a new option (ignores duplicates)
+- **`RemoveOption(uniqueName string) bool`** - Removes an option by uniqueName
+- **`UpdateOption(option Option) bool`** - Updates an existing option
+- **`GetOptionByUniqueName(uniqueName string) (Option, bool)`** - Gets option by uniqueName
+- **`GetOptionByDisplayName(displayName string) (Option, bool)`** - Gets option by displayName
+- **`Clear()`** - Removes all options
+- **`Count() int`** - Returns the number of options
+- **`HasOption(uniqueName string) bool`** - Checks if option exists by uniqueName
+- **`HasDisplayName(displayName string) bool`** - Checks if option exists by displayName
+
+**Features:**
+- Thread-safe with read-write mutex
+- Context cancellation support
+- Duplicate prevention (by uniqueName)
+- Defensive copying to prevent external modification
+- Full CRUD operations
+
+**Usage:**
+```go
+// Create with initial options
+options := []jpack.Option{
+    {UniqueName: "active", DisplayName: "Active"},
+    {UniqueName: "inactive", DisplayName: "Inactive"},
+}
+service := jpack.NewInMemoryOptionService(options)
+
+// Use with Options FieldType
+optionsField := jpack.NewOptions(service)
+
+// Dynamic operations
+service.AddOption(jpack.Option{UniqueName: "pending", DisplayName: "Pending"})
+service.RemoveOption("inactive")
+service.UpdateOption(jpack.Option{UniqueName: "active", DisplayName: "Active Updated"})
+
+// Query operations
+count := service.Count()
+hasOption := service.HasOption("active")
+option, found := service.GetOptionByUniqueName("active")
+```
+
 ## Record Operations
 
 ### MongoRecord

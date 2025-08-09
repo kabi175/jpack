@@ -365,6 +365,162 @@ func main() {
 }
 ```
 
+### Options Field Type
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+    
+    "github.com/kabi175/jpack"
+)
+
+// DatabaseService simulates a service that fetches options from a database
+type DatabaseService struct {
+    // In a real implementation, this would have a database connection
+}
+
+func (d *DatabaseService) GetOptions(ctx context.Context) ([]jpack.Option, error) {
+    // Simulate database query with context
+    select {
+    case <-ctx.Done():
+        return nil, ctx.Err()
+    default:
+        // Simulate database delay
+        time.Sleep(10 * time.Millisecond)
+        return []jpack.Option{
+            {UniqueName: "draft", DisplayName: "Draft"},
+            {UniqueName: "published", DisplayName: "Published"},
+            {UniqueName: "archived", DisplayName: "Archived"},
+            {UniqueName: "deleted", DisplayName: "Deleted"},
+        }, nil
+    }
+}
+
+// ConfigService simulates a service that fetches options from configuration
+type ConfigService struct {
+    options []jpack.Option
+}
+
+func (c *ConfigService) GetOptions(ctx context.Context) ([]jpack.Option, error) {
+    return c.options, nil
+}
+
+// Usage example
+func main() {
+    // Create services
+    dbService := &DatabaseService{}
+    configService := &ConfigService{
+        options: []jpack.Option{
+            {UniqueName: "low", DisplayName: "Low"},
+            {UniqueName: "medium", DisplayName: "Medium"},
+            {UniqueName: "high", DisplayName: "High"},
+            {UniqueName: "critical", DisplayName: "Critical"},
+        },
+    }
+    
+    // Or use the built-in in-memory service
+    inMemoryService := jpack.NewInMemoryOptionService([]jpack.Option{
+        {UniqueName: "bronze", DisplayName: "Bronze"},
+        {UniqueName: "silver", DisplayName: "Silver"},
+        {UniqueName: "gold", DisplayName: "Gold"},
+        {UniqueName: "platinum", DisplayName: "Platinum"},
+    })
+
+    // Create schema with options fields
+    articleSchema := jpack.NewSchema("articles").
+        Field("id", &jpack.String{}).
+        Field("title", &jpack.String{}).
+        Field("status", jpack.NewOptions(dbService)).
+        Field("priority", jpack.NewOptions(configService)).
+        Field("plan", jpack.NewOptions(inMemoryService)).
+        Build()
+
+    article := jpack.NewMongoRecord(articleSchema)
+    
+    titleField, _ := articleSchema.Field("title")
+    statusField, _ := articleSchema.Field("status")
+    priorityField, _ := articleSchema.Field("priority")
+    planField, _ := articleSchema.Field("plan")
+    
+    article.SetValue(titleField, "Getting Started with JPack")
+    article.SetValue(statusField, "draft")
+    article.SetValue(priorityField, "medium")
+    article.SetValue(planField, "gold")
+    
+    // This would cause a validation error
+    // article.SetValue(statusField, "invalid_status")
+    
+    if err := article.Validate(); err != nil {
+        fmt.Printf("Validation error: %v\n", err)
+    } else {
+        fmt.Println("Article data is valid")
+    }
+    
+    // Demonstrate dynamic options
+    fmt.Println("\n=== Dynamic Options Example ===")
+    
+    // Create a mutable config service
+    mutableService := &ConfigService{
+        options: []jpack.Option{
+            {UniqueName: "option1", DisplayName: "Option 1"},
+            {UniqueName: "option2", DisplayName: "Option 2"},
+        },
+    }
+    mutableOptions := jpack.NewOptions(mutableService)
+    
+    // Test with initial options
+    fmt.Printf("Initial options: %v\n", mutableService.options)
+    err := mutableOptions.Validate("option1")
+    fmt.Printf("'option1' is valid: %v\n", err == nil)
+    
+    // Change options dynamically
+    mutableService.options = []jpack.Option{
+        {UniqueName: "option3", DisplayName: "Option 3"},
+        {UniqueName: "option4", DisplayName: "Option 4"},
+    }
+    fmt.Printf("Updated options: %v\n", mutableService.options)
+    err = mutableOptions.Validate("option1")
+    fmt.Printf("'option1' is still valid: %v (should be false)\n", err == nil)
+    err = mutableOptions.Validate("option3")
+    fmt.Printf("'option3' is valid: %v\n", err == nil)
+    
+    // Demonstrate InMemoryOptionService features
+    fmt.Println("\n=== InMemoryOptionService Features ===")
+    
+    // Create an in-memory service
+    service := jpack.NewInMemoryOptionService([]jpack.Option{
+        {UniqueName: "admin", DisplayName: "Administrator"},
+        {UniqueName: "user", DisplayName: "User"},
+    })
+    
+    fmt.Printf("Initial count: %d\n", service.Count())
+    
+    // Add a new option
+    service.AddOption(jpack.Option{UniqueName: "moderator", DisplayName: "Moderator"})
+    fmt.Printf("After adding: %d\n", service.Count())
+    
+    // Update an option
+    service.UpdateOption(jpack.Option{UniqueName: "admin", DisplayName: "System Administrator"})
+    
+    // Get option by unique name
+    if option, found := service.GetOptionByUniqueName("admin"); found {
+        fmt.Printf("Admin display name: %s\n", option.DisplayName)
+    }
+    
+    // Remove an option
+    service.RemoveOption("user")
+    fmt.Printf("After removing: %d\n", service.Count())
+    
+    // Check if option exists
+    fmt.Printf("Has admin: %v\n", service.HasOption("admin"))
+    fmt.Printf("Has user: %v\n", service.HasOption("user"))
+}
+```
+
 ### Date Field Type
 
 ```go

@@ -391,3 +391,152 @@ func (dt *DateTime) Validate(value any) error {
 }
 
 var _ JFieldType = &DateTime{}
+
+// Option represents a single option with unique name and display name
+type Option struct {
+	UniqueName  string `json:"uniqueName"`
+	DisplayName string `json:"displayName"`
+}
+
+// OptionService defines the interface for getting available options
+type OptionService interface {
+	GetOptions(ctx context.Context) ([]Option, error)
+}
+
+// Options represents an enum field type that gets its allowed values from a service
+type Options struct {
+	service OptionService
+}
+
+// NewOptions creates a new Options FieldType with the given service
+func NewOptions(service OptionService) *Options {
+	return &Options{
+		service: service,
+	}
+}
+
+// Scan implements JFieldType.
+func (o *Options) Scan(ctx context.Context, field JField, row map[string]any) (value any, err error) {
+	v, ok := row[field.Name()]
+	if !ok {
+		return nil, nil // No value found, return nil
+	}
+
+	if v == nil {
+		return nil, nil // If the value is nil, return nil
+	}
+
+	reflectValue := reflect.ValueOf(v)
+
+	switch reflectValue.Kind() {
+	case reflect.String:
+		return reflectValue.String(), nil
+	default:
+		return nil, errors.New("options field must be a string")
+	}
+}
+
+// SetValue implements JFieldType.
+func (o *Options) SetValue(ctx context.Context, field JField, value any, row map[string]any) error {
+	reflectValue := reflect.ValueOf(value)
+
+	// If the value is nil, set the row field to nil
+	if value == nil || (reflectValue.Kind() == reflect.Pointer && reflectValue.IsNil()) {
+		row[field.Name()] = nil // Set the field to nil if the value is nil
+		return nil
+	}
+
+	if err := o.Validate(value); err != nil {
+		return err
+	}
+
+	columnName := field.Name()
+
+	switch v := value.(type) {
+	case string:
+		row[columnName] = v
+	default:
+		return errors.New("options field must be a string")
+	}
+
+	return nil
+}
+
+// Validate implements JFieldType.
+func (o *Options) Validate(value any) error {
+	if value == nil {
+		return nil // If the value is nil, return nil
+	}
+
+	reflectValue := reflect.ValueOf(value)
+
+	// Handle pointer types
+	if reflectValue.Kind() == reflect.Pointer {
+		if reflectValue.IsNil() {
+			return nil // If the pointer is nil, return nil
+		}
+		// Handle pointer types, dereferencing to get the value
+		reflectValue = reflectValue.Elem()
+	}
+
+	if reflectValue.Kind() != reflect.String {
+		return errors.New("options field must be a string")
+	}
+
+	// Get the string value (this should be the uniqueName)
+	strValue := reflectValue.String()
+
+	// Get available options from the service
+	availableOptions, err := o.service.GetOptions(context.Background())
+	if err != nil {
+		return errors.Join(errors.New("failed to get available options"), err)
+	}
+
+	// Check if the value (uniqueName) is in the allowed options
+	for _, option := range availableOptions {
+		if option.UniqueName == strValue {
+			return nil // Value is valid
+		}
+	}
+
+	return errors.New("value is not in the list of available options")
+}
+
+// GetDisplayName returns the display name for a given unique name
+func (o *Options) GetDisplayName(ctx context.Context, uniqueName string) (string, error) {
+	availableOptions, err := o.service.GetOptions(ctx)
+	if err != nil {
+		return "", errors.Join(errors.New("failed to get available options"), err)
+	}
+
+	for _, option := range availableOptions {
+		if option.UniqueName == uniqueName {
+			return option.DisplayName, nil
+		}
+	}
+
+	return "", errors.New("option not found")
+}
+
+// GetUniqueName returns the unique name for a given display name
+func (o *Options) GetUniqueName(ctx context.Context, displayName string) (string, error) {
+	availableOptions, err := o.service.GetOptions(ctx)
+	if err != nil {
+		return "", errors.Join(errors.New("failed to get available options"), err)
+	}
+
+	for _, option := range availableOptions {
+		if option.DisplayName == displayName {
+			return option.UniqueName, nil
+		}
+	}
+
+	return "", errors.New("option not found")
+}
+
+// GetAllOptions returns all available options from the service
+func (o *Options) GetAllOptions(ctx context.Context) ([]Option, error) {
+	return o.service.GetOptions(ctx)
+}
+
+var _ JFieldType = &Options{}
