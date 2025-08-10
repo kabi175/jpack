@@ -73,13 +73,13 @@ func (n *Number) Validate(value any) error {
 		case reflect.String:
 			_, err := strconv.ParseInt(reflectValue.String(), 10, 32)
 			if err != nil {
-				return errors.Join(errors.New("value is not a valid integer"), err)
+				return errors.New("value is not a valid integer")
 			}
 			return nil // No error for valid integer types
 		case reflect.Pointer:
 			return validate(reflectValue.Elem())
 		default:
-			return errors.Join(errors.New("value is a struct, expected an integer"), nil)
+			return errors.New("value is not a valid integer")
 		}
 	}
 

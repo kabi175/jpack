@@ -165,6 +165,11 @@ func (m *mongoRecord) SetValue(field JField, value any) error {
 		return errors.New("field schema does not match record schema")
 	}
 
+	err := field.Type().Validate(value)
+	if err != nil {
+		return err
+	}
+
 	m.record[field.Name()] = value
 	return nil
 }
