@@ -68,7 +68,7 @@ func (n *Number) Validate(value any) error {
 
 	validate = func(reflectValue reflect.Value) error {
 		switch reflectValue.Kind() {
-		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Float32, reflect.Float64:
 			return nil // No error for valid integer types
 		case reflect.String:
 			_, err := strconv.ParseInt(reflectValue.String(), 10, 32)
