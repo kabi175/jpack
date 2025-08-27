@@ -175,8 +175,8 @@ func (m *mongoRecord) SetValue(field JField, value any) error {
 }
 
 // Validate implements JRecord.
-func (m *mongoRecord) Validate() error {
-	return m.schema.Validate(m)
+func (m *mongoRecord) Validate(ctx context.Context) error {
+	return m.schema.Validate(ctx, m)
 }
 
 // Value implements JRecord.

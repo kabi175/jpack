@@ -19,7 +19,7 @@ type JRecord interface {
 	DirtyKeys() []string
 
 	Save(ctx context.Context) error
-	Validate() error
+	Validate(ctx context.Context) error
 }
 
 type Filter interface {

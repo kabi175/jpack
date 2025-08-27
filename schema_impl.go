@@ -1,9 +1,15 @@
 package jpack
 
+import (
+	"context"
+	"fmt"
+)
+
 type schemaImpl struct {
-	name   string
-	fields []JField
-	edges  []JEdge
+	name        string
+	fields      []JField
+	edges       []JEdge
+	validations []ValidationFunc
 }
 
 // AddEdge implements JSchema.
@@ -21,17 +27,44 @@ func (s *schemaImpl) AddEdge(edge JEdge) JSchema {
 }
 
 // AddField implements JSchema.
-func (s *schemaImpl) AddField(field JField) JSchema {
+func (s *schemaImpl) AddField(name string, fType JFieldType, defaultValue any) JField {
+	field := &fieldImpl{
+		name:         name,
+		fType:        fType,
+		schema:       s,
+		defaultValue: defaultValue,
+	}
+
+	return s.appendFieldIfNotPresent(field)
+}
+
+func (s *schemaImpl) AddRef(name string, schema JSchema) JRef {
+	field := &refImpl{
+		fieldImpl: fieldImpl{
+			name:   name,
+			fType:  &Ref{},
+			schema: s,
+		},
+		relSchema: schema,
+	}
+
+	if field == s.appendFieldIfNotPresent(field) {
+		return field
+	}
+	return nil
+}
+
+func (s *schemaImpl) appendFieldIfNotPresent(field JField) JField {
 	for _, f := range s.fields {
-		if field.Name() == f.Name() {
+		if f.Name() == field.Name() {
 			// If a field with the same name already exists, return the schema builder
 			// without adding a new field.
-			return s
+			return nil
 		}
 	}
 
 	s.fields = append(s.fields, field)
-	return s
+	return field
 }
 
 // Field implements JSchema.
@@ -60,9 +93,50 @@ func (s *schemaImpl) Name() string {
 	return s.name
 }
 
+// AddValidation adds a custom validation function to the schema
+func (s *schemaImpl) AddValidation(validation ValidationFunc) {
+	s.validations = append(s.validations, validation)
+}
+
+// Validations returns all custom validation functions
+func (s *schemaImpl) Validations() []ValidationFunc {
+	return s.validations
+}
+
 // Validate implements JSchema.
-func (s *schemaImpl) Validate(JRecord) error {
-	panic("unimplemented")
+func (s *schemaImpl) Validate(ctx context.Context, record JRecord) error {
+	// Validate that the record's schema matches this schema
+	if record.Schema() != s {
+		return fmt.Errorf("record schema does not match validation schema")
+	}
+
+	// Validate each field in the schema
+	for _, field := range s.fields {
+		value, exists := record.Value(field)
+
+		// If field doesn't exist and has no default, it's required
+		if !exists {
+			if field.Default() == nil {
+				return fmt.Errorf("required field '%s' is missing", field.Name())
+			}
+			// Use default value for validation
+			value = field.Default()
+		}
+
+		// Validate the field value against its type
+		if err := field.Type().Validate(value); err != nil {
+			return fmt.Errorf("field '%s' validation failed: %w", field.Name(), err)
+		}
+	}
+
+	// Run custom validations
+	for i, validation := range s.validations {
+		if err := validation(ctx, record); err != nil {
+			return fmt.Errorf("custom validation %d failed: %w", i+1, err)
+		}
+	}
+
+	return nil
 }
 
 var _ JSchema = &schemaImpl{}

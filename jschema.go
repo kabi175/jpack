@@ -4,6 +4,9 @@ import (
 	"context"
 )
 
+// ValidationFunc is a function type for custom validation rules
+type ValidationFunc func(ctx context.Context, record JRecord) error
+
 type JFieldType interface {
 	Validate(value any) error
 
@@ -38,12 +41,15 @@ type JSchema interface {
 	Name() string
 	Fields() []JField
 	Field(name string) (JField, bool)
-	AddField(field JField) JSchema
+	AddField(name string, fType JFieldType, defaultValue any) JField
+	AddRef(name string, schema JSchema) JRef
 
 	Edge() []JEdge
 	AddEdge(edge JEdge) JSchema
 
-	Validate(JRecord) error
+	Validate(context.Context, JRecord) error
+	AddValidation(ValidationFunc)
+	Validations() []ValidationFunc
 }
 
 type JPolicy interface {
@@ -51,35 +57,16 @@ type JPolicy interface {
 }
 
 type SchemaBuilder struct {
-	name   string
-	fields []JField
-	edges  []JEdge
+	name        string
+	fields      []JField
+	edges       []JEdge
+	validations []ValidationFunc
 
 	schema *schemaImpl
 }
 
-func (s *SchemaBuilder) appendFieldIfNotPresent(field JField) {
-	for _, f := range s.fields {
-		if f.Name() == field.Name() {
-			// If a field with the same name already exists, return the schema builder
-			// without adding a new field.
-			return
-		}
-	}
-
-	s.fields = append(s.fields, field)
-}
-
 func (s *SchemaBuilder) FieldWithDefault(name string, fType JFieldType, defaultValue any) *SchemaBuilder {
-
-	field := &fieldImpl{
-		name:         name,
-		fType:        fType,
-		schema:       s.schema,
-		defaultValue: defaultValue,
-	}
-
-	s.appendFieldIfNotPresent(field)
+	s.schema.AddField(name, fType, defaultValue)
 	return s
 }
 
@@ -88,16 +75,19 @@ func (s *SchemaBuilder) Field(name string, fType JFieldType) *SchemaBuilder {
 }
 
 func (s *SchemaBuilder) Ref(name string, schema JSchema) *SchemaBuilder {
-	field := &refImpl{
-		fieldImpl: fieldImpl{
-			name:   name,
-			fType:  &Ref{},
-			schema: s.schema,
-		},
-		relSchema: schema,
-	}
+	s.schema.AddRef(name, schema)
+	return s
+}
 
-	s.appendFieldIfNotPresent(field)
+func (s *SchemaBuilder) RefWithEdge(name string, schema JSchema, edgeName string) *SchemaBuilder {
+	ref := s.schema.AddRef(name, schema)
+
+	schema.AddEdge(&edgeImpl{
+		name:   edgeName,
+		schema: s.schema,
+		field:  ref,
+	})
+
 	return s
 }
 
@@ -119,9 +109,14 @@ func (s *SchemaBuilder) Edge(name string, schema JSchema, ref JRef) *SchemaBuild
 	return s
 }
 
+// Validation adds a custom validation function to the schema
+func (s *SchemaBuilder) Validation(validation ValidationFunc) *SchemaBuilder {
+	s.validations = append(s.validations, validation)
+	return s
+}
+
 func (s *SchemaBuilder) Build() JSchema {
-	s.schema.fields = s.fields
-	s.schema.edges = s.edges
+	s.schema.validations = s.validations
 
 	return s.schema
 }
