@@ -16,9 +16,13 @@ func TestSchemaBuilder(t *testing.T) {
 		assert.NotNil(schema, "Schema should not be nil")
 
 		f, ok := schema.Field("id")
-		assert.True(ok, "Field 'id' should exist in schema")
-		assert.NotNil(f, "Field 'id' should not be nil")
-		assert.Equal("id", f.Name(), "Field name should be 'id'")
+
+		if assert.True(ok, "Field 'id' should exist in schema") {
+			if assert.NotNil(f, "Field 'id' should not be nil") {
+				assert.Equal("id", f.Name(), "Field name should be 'id'")
+
+			}
+		}
 	})
 
 	t.Run("add ref field", func(t *testing.T) {
@@ -35,14 +39,17 @@ func TestSchemaBuilder(t *testing.T) {
 
 		authorField, ok := postSchema.Field("author")
 		assert.True(ok, "Field 'author' should exist in post schema")
-		assert.NotNil(authorField, "Field 'author' should not be nil")
-		assert.Equal("author", authorField.Name(), "Field name should be 'author'")
-		assert.IsType(&Ref{}, authorField.Type(), "Field type should be Ref")
+		if assert.NotNil(authorField, "Field 'author' should not be nil") {
+			assert.Equal("author", authorField.Name(), "Field name should be 'author'")
+			assert.IsType(&Ref{}, authorField.Type(), "Field type should be Ref")
+		}
 
 		authorRef, ok := authorField.(JRef)
-		assert.True(ok, "Field 'author' should implement JRef")
-		assert.NotNil(authorRef.RelSchema(), "Related schema should not be nil")
-		assert.Equal(userSchema, authorRef.RelSchema(), "Field schema should match user schema")
+		if assert.True(ok, "Field 'author' should implement JRef") {
+			if assert.NotNil(authorRef.RelSchema(), "Related schema should not be nil") {
+				assert.Equal(userSchema, authorRef.RelSchema(), "Field schema should match user schema")
+			}
+		}
 
 	})
 
