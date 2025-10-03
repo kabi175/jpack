@@ -90,12 +90,11 @@ func UserExample() {
 	}
 
 	// Set up hooks
-	hookManager := hooks.NewHookManager(userSchema)
-	hookManager.AddTimestampHook("created_at", "updated_at").
+	err = hooks.NewHookManager(userSchema).
+		AddTimestampHook("created_at", "updated_at").
 		AddValidationHook().
-		AddLoggingHook(nil)
+		AddLoggingHook(nil).RegisterAll()
 
-	err = hookManager.RegisterAll()
 	if err != nil {
 		log.Fatal("Failed to register hooks:", err)
 	}

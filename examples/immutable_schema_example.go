@@ -54,7 +54,7 @@ func ImmutableSchemaExample() {
 
 	// Example 2: Using convenience functions
 	logger.App.Info().Msg("=== Example 2: Convenience Functions ===")
-	productSchema := schema.CreateProductSchema()
+	productSchema := CreateProductSchema()
 	logger.App.Info().
 		Bool("immutable", productSchema.IsImmutable()).
 		Msg("Product schema is immutable")

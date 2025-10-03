@@ -1,9 +1,5 @@
 package schema
 
-import (
-	"context"
-)
-
 // SchemaBuilder provides a fluent interface for building schemas
 type SchemaBuilder struct {
 	schema JSchema
@@ -171,61 +167,4 @@ func (srb *SchemaRegistryBuilder) Build() JSchemaRegistry {
 // GetRegistry returns the current registry
 func (srb *SchemaRegistryBuilder) GetRegistry() JSchemaRegistry {
 	return srb.registry
-}
-
-// Convenience functions for common schema patterns
-
-// CreateUserSchema creates a common user schema
-func CreateUserSchema() JSchema {
-	return NewSchemaBuilder("User").
-		AddRequiredUniqueField("id", JString, nil).
-		AddRequiredField("name", JString, nil).
-		AddRequiredUniqueField("email", JString, nil).
-		AddField("age", JInt, 18).
-		AddField("created_at", JTime, nil).
-		AddField("updated_at", JTime, nil).
-		SetIDField("id").
-		AddValidation(func(ctx context.Context, rec JRecord) error {
-			// Add common user validations here
-			return nil
-		}).
-		BuildImmutable()
-}
-
-// CreateProductSchema creates a common product schema
-func CreateProductSchema() JSchema {
-	return NewSchemaBuilder("Product").
-		AddRequiredUniqueField("id", JString, nil).
-		AddRequiredField("name", JString, nil).
-		AddField("description", JString, nil).
-		AddRequiredField("price", JFloat64, 0.0).
-		AddRequiredField("category", JString, nil).
-		AddField("tags", JArray, nil).
-		AddField("in_stock", JBool, true).
-		AddField("created_at", JTime, nil).
-		AddField("updated_at", JTime, nil).
-		SetIDField("id").
-		AddValidation(func(ctx context.Context, rec JRecord) error {
-			// Add common product validations here
-			return nil
-		}).
-		BuildImmutable()
-}
-
-// CreateOrderSchema creates a common order schema
-func CreateOrderSchema() JSchema {
-	return NewSchemaBuilder("Order").
-		AddRequiredUniqueField("id", JString, nil).
-		AddRequiredField("customer_id", JString, nil).
-		AddRequiredField("total_amount", JFloat64, 0.0).
-		AddField("status", JString, "pending").
-		AddField("items", JArray, nil).
-		AddField("created_at", JTime, nil).
-		AddField("updated_at", JTime, nil).
-		SetIDField("id").
-		AddValidation(func(ctx context.Context, rec JRecord) error {
-			// Add common order validations here
-			return nil
-		}).
-		BuildImmutable()
 }
