@@ -4,38 +4,42 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // SchemaDef represents a schema definition loaded from external sources
 type SchemaDef struct {
-	Name   string              `json:"name"`
-	Fields map[string]FieldDef `json:"fields"`
-	Refs   map[string]RefDef   `json:"refs,omitempty"`
-	Edges  []EdgeDef           `json:"edges,omitempty"`
+	Name   string              `json:"name" yaml:"name"`
+	Fields map[string]FieldDef `json:"fields" yaml:"fields"`
+	Refs   map[string]RefDef   `json:"refs,omitempty" yaml:"refs,omitempty"`
+	Edges  []EdgeDef           `json:"edges,omitempty" yaml:"edges,omitempty"`
 }
 
 // FieldDef represents a field definition
 type FieldDef struct {
-	Type         string      `json:"type"`
-	DefaultValue interface{} `json:"defaultValue,omitempty"`
-	Required     bool        `json:"required,omitempty"`
-	Unique       bool        `json:"unique,omitempty"`
+	Type         string      `json:"type" yaml:"type"`
+	DefaultValue interface{} `json:"defaultValue,omitempty" yaml:"defaultValue,omitempty"`
+	Required     bool        `json:"required,omitempty" yaml:"required,omitempty"`
+	Unique       bool        `json:"unique,omitempty" yaml:"unique,omitempty"`
 }
 
 // RefDef represents a reference definition
 type RefDef struct {
-	TargetSchema string `json:"targetSchema"`
-	IsArray      bool   `json:"isArray,omitempty"`
+	TargetSchema string `json:"targetSchema" yaml:"targetSchema"`
+	IsArray      bool   `json:"isArray,omitempty" yaml:"isArray,omitempty"`
 }
 
 // EdgeDef represents an edge definition
 type EdgeDef struct {
-	Name         string `json:"name"`
-	TargetSchema string `json:"targetSchema"`
-	Type         string `json:"type"`
+	Name         string `json:"name" yaml:"name"`
+	TargetSchema string `json:"targetSchema" yaml:"targetSchema"`
+	Type         string `json:"type" yaml:"type"`
 }
 
-// FileSchemaSource loads schema definitions from JSON files
+// FileSchemaSource loads schema definitions from JSON and YAML files
 type FileSchemaSource struct {
 	Path string
 }
@@ -45,16 +49,38 @@ func NewFileSchemaSource(path string) *FileSchemaSource {
 	return &FileSchemaSource{Path: path}
 }
 
-// Load loads a schema definition from a JSON file
+// Load loads a schema definition from a JSON or YAML file
 func (f *FileSchemaSource) Load(schemaName string) (JSchema, error) {
 	data, err := os.ReadFile(f.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read schema file %s: %w", f.Path, err)
 	}
 
+	// First try to load as bulk schema ([]SchemaDef)
+	var bulkDefs []SchemaDef
+	bulkErr := f.tryUnmarshal(data, &bulkDefs)
+
+	if bulkErr == nil && len(bulkDefs) > 0 {
+		// Successfully loaded as bulk schema
+		if schemaName != "" {
+			// Find specific schema by name
+			for _, def := range bulkDefs {
+				if def.Name == schemaName {
+					return ConvertDefToSchema(def)
+				}
+			}
+			return nil, fmt.Errorf("schema '%s' not found in bulk file %s", schemaName, f.Path)
+		}
+		// Return the first schema if no specific name requested
+		return ConvertDefToSchema(bulkDefs[0])
+	}
+
+	// If bulk loading failed, try single schema (SchemaDef)
 	var def SchemaDef
-	if err := json.Unmarshal(data, &def); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal schema definition: %w", err)
+	singleErr := f.tryUnmarshal(data, &def)
+
+	if singleErr != nil {
+		return nil, fmt.Errorf("failed to unmarshal schema definition as bulk or single schema: bulk error: %v, single error: %w", bulkErr, singleErr)
 	}
 
 	// Override the name if provided
@@ -63,6 +89,24 @@ func (f *FileSchemaSource) Load(schemaName string) (JSchema, error) {
 	}
 
 	return ConvertDefToSchema(def)
+}
+
+// tryUnmarshal attempts to unmarshal data as JSON or YAML
+func (f *FileSchemaSource) tryUnmarshal(data []byte, target interface{}) error {
+	// Detect file format based on extension
+	ext := strings.ToLower(filepath.Ext(f.Path))
+	switch ext {
+	case ".json":
+		return json.Unmarshal(data, target)
+	case ".yaml", ".yml":
+		return yaml.Unmarshal(data, target)
+	default:
+		// Try JSON first, then YAML
+		if err := json.Unmarshal(data, target); err != nil {
+			return yaml.Unmarshal(data, target)
+		}
+		return nil
+	}
 }
 
 // ConvertDefToSchema converts a SchemaDef to a JSchema

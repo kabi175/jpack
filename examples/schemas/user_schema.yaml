@@ -1,0 +1,33 @@
+name: User
+fields:
+  id:
+    type: string
+    required: true
+    unique: true
+  name:
+    type: string
+    required: true
+  email:
+    type: string
+    required: true
+    unique: true
+  age:
+    type: int
+    defaultValue: 18
+    required: true
+  phone:
+    type: string
+  address:
+    type: string
+  created_at:
+    type: time
+  updated_at:
+    type: time
+refs:
+  orders:
+    targetSchema: Order
+    isArray: true
+edges:
+  - name: user_orders
+    targetSchema: Order
+    type: one-to-many

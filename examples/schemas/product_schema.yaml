@@ -1,0 +1,34 @@
+name: Product
+fields:
+  id:
+    type: string
+    required: true
+    unique: true
+  name:
+    type: string
+    required: true
+  description:
+    type: string
+  price:
+    type: float64
+    required: true
+  category:
+    type: string
+    required: true
+  tags:
+    type: array
+  in_stock:
+    type: bool
+    defaultValue: true
+  created_at:
+    type: time
+  updated_at:
+    type: time
+refs:
+  orders:
+    targetSchema: Order
+    isArray: true
+edges:
+  - name: product_orders
+    targetSchema: Order
+    type: many-to-many

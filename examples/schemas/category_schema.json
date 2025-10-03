@@ -1,0 +1,61 @@
+{
+  "name": "Category",
+  "fields": {
+    "id": {
+      "type": "string",
+      "required": true,
+      "unique": true
+    },
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "description": {
+      "type": "string"
+    },
+    "parent_id": {
+      "type": "string"
+    },
+    "is_active": {
+      "type": "bool",
+      "defaultValue": true
+    },
+    "created_at": {
+      "type": "time"
+    },
+    "updated_at": {
+      "type": "time"
+    }
+  },
+  "refs": {
+    "parent": {
+      "targetSchema": "Category",
+      "isArray": false
+    },
+    "children": {
+      "targetSchema": "Category",
+      "isArray": true
+    },
+    "products": {
+      "targetSchema": "Product",
+      "isArray": true
+    }
+  },
+  "edges": [
+    {
+      "name": "category_parent",
+      "targetSchema": "Category",
+      "type": "many-to-one"
+    },
+    {
+      "name": "category_children",
+      "targetSchema": "Category",
+      "type": "one-to-many"
+    },
+    {
+      "name": "category_products",
+      "targetSchema": "Product",
+      "type": "one-to-many"
+    }
+  ]
+}

@@ -27,9 +27,11 @@ func main() {
 			LazyRegistryExample()
 		case "concurrent":
 			ConcurrentExample()
+		case "file":
+			FileSchemaExample()
 		default:
 			fmt.Printf("Unknown example: %s\n", example)
-			fmt.Println("Available examples: user, product, custom, immutable, lazy, concurrent")
+			fmt.Println("Available examples: user, product, custom, immutable, lazy, concurrent, file")
 			os.Exit(1)
 		}
 		return
@@ -59,6 +61,10 @@ func main() {
 	// Run concurrent example
 	fmt.Println("\n6. Concurrent Example")
 	ConcurrentExample()
+
+	// Run file schema example
+	fmt.Println("\n7. File Schema Example")
+	FileSchemaExample()
 
 	fmt.Println("\n=== All Examples Completed Successfully! ===")
 }
