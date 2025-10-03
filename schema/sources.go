@@ -66,26 +66,21 @@ func (f *FileSchemaSource) Load(schemaName string) (JSchema, error) {
 		// Successfully loaded as bulk schema
 		if schemaName != "" {
 			// Find specific schema by name
-			for _, def := range bulkDefs {
-				if def.Name == schemaName {
-					return ConvertDefToSchema(def)
-				}
+			schemaDef, ok := lo.Find(bulkDefs, func(def SchemaDef) bool {
+				return def.Name == schemaName
+			})
+			if !ok {
+				logger.Schema.Error().
+					Str("schema", schemaName).
+					Str("file", f.Path).
+					Msg("schema not found in bulk file")
+
+				return nil, fmt.Errorf("schema '%s' not found in bulk file %s", schemaName, f.Path)
 			}
-			return nil, fmt.Errorf("schema '%s' not found in bulk file %s", schemaName, f.Path)
+			return ConvertDefToSchema(schemaDef)
 		}
 		// Return the first schema if no specific name requested
-		schemaDef, ok := lo.Find(bulkDefs, func(def SchemaDef) bool {
-			return def.Name == schemaName
-		})
-		if !ok {
-			logger.Schema.Error().
-				Str("schema", schemaName).
-				Str("file", f.Path).
-				Msg("schema not found in bulk file")
-
-			return nil, fmt.Errorf("schema '%s' not found in bulk file %s", schemaName, f.Path)
-		}
-		return ConvertDefToSchema(schemaDef)
+		return ConvertDefToSchema(bulkDefs[0])
 	}
 
 	// If bulk loading failed, try single schema (SchemaDef)

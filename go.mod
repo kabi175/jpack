@@ -4,10 +4,15 @@ go 1.24.2
 
 require (
 	github.com/rs/zerolog v1.34.0
+	github.com/stretchr/testify v1.11.1
 	go.mongodb.org/mongo-driver v1.17.4
 )
 
-require github.com/montanaflynn/stats v0.7.1 // indirect
+require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/montanaflynn/stats v0.7.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+)
 
 require (
 	github.com/golang/snappy v1.0.0 // indirect
