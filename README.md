@@ -1,16 +1,20 @@
-# JPack
+# JPack - Schema-Driven Persistence Framework for Go
 
-A Go library for building type-safe, schema-driven data access layers with MongoDB support.
+JPack is a schema-driven persistence framework for Go that works like JPA but is tailored for MongoDB. It provides a comprehensive set of features including schema definition, repository pattern, validation, hooks, converters, and more.
 
-## Overview
+## Features
 
-JPack is a lightweight Object-Relational Mapping (ORM) library for Go that provides:
-
-- **Schema-first approach**: Define your data structures using a fluent schema builder
-- **Type safety**: Strongly typed field validation and data conversion
-- **MongoDB integration**: Built-in support for MongoDB with automatic BSON conversion
-- **Flexible field types**: Extensible field type system with built-in primitives
-- **Record lifecycle management**: Track modifications, validate data, and manage persistence
+- **Schema Definition**: Define schemas with fields, types, validations, and relationships
+- **Immutable Schemas**: Schemas are immutable once registered, ensuring consistency
+- **Schema Evolution**: Replace entire schemas for versioning and evolution
+- **Repository Pattern**: CRUD operations with advanced querying capabilities
+- **MongoDB Integration**: Seamless integration with MongoDB using the official driver
+- **Validation Layer**: Field-level, record-level, and schema-level validations
+- **Lifecycle Hooks**: Before/after hooks for save, delete, find, and update operations
+- **Type Converters**: Automatic conversion between Go types and MongoDB documents
+- **Query API**: Fluent query builder with pluggable operators
+- **Projections**: Field projections and aggregations
+- **Index Management**: Automatic index creation based on schema definitions
 
 ## Installation
 
@@ -26,550 +30,461 @@ go get github.com/kabi175/jpack
 package main
 
 import (
-    "github.com/kabi175/jpack"
+    "context"
+    "log"
+    
+    "github.com/kabi175/jpack/mongo"
+    "github.com/kabi175/jpack/schema"
+    "github.com/kabi175/jpack/validation"
 )
 
 func main() {
-    // Create a user schema
-    userSchema := jpack.NewSchema("users").
-        Field("id", &jpack.String{}).
-        Field("first_name", &jpack.String{}).
-        Field("last_name", &jpack.String{}).
-        Field("email", &jpack.String{}).
-        Field("age", &jpack.Number{}).
-        Build()
-}
-```
-
-### 2. Create and Manipulate Records
-
-```go
-// Create a new MongoDB record
-record := jpack.NewMongoRecord(userSchema)
-
-// Set field values
-firstNameField, _ := userSchema.Field("first_name")
-lastNameField, _ := userSchema.Field("last_name")
-emailField, _ := userSchema.Field("email")
-ageField, _ := userSchema.Field("age")
-
-record.SetValue(firstNameField, "John")
-record.SetValue(lastNameField, "Doe")
-record.SetValue(emailField, "john@example.com")
-record.SetValue(ageField, 30)
-
-// Check if record is modified
-if record.IsModified() {
-    fmt.Println("Record has been modified")
-}
-
-// Get dirty keys (fields that have been changed)
-dirtyKeys := record.DirtyKeys()
-fmt.Printf("Modified fields: %v\n", dirtyKeys)
-```
-
-### 3. Persist to MongoDB
-
-```go
-import (
-    "context"
-    "go.mongodb.org/mongo-driver/v2/mongo"
-    "go.mongodb.org/mongo-driver/v2/mongo/options"
-)
-
-// Connect to MongoDB
-client, err := mongo.Connect(options.Client().ApplyURI("mongodb://localhost:27017"))
-if err != nil {
-    panic(err)
-}
-
-// Create context with database connection
-ctx := context.WithValue(context.Background(), jpack.Conn, client.Database("myapp"))
-
-// Save the record
-err = record.Save(ctx)
-if err != nil {
-    panic(err)
-}
-
-// The record now has an ID assigned
-idField, _ := userSchema.Field("id")
-id, exists := record.Value(idField)
-if exists {
-    fmt.Printf("Record saved with ID: %s\n", id)
-}
-```
-
-## Core Concepts
-
-### Schemas
-
-Schemas define the structure and validation rules for your data:
-
-```go
-// Create a schema builder
-builder := jpack.NewSchema("products")
-
-// Add fields with types
-schema := builder.
-    Field("id", &jpack.String{}).
-    Field("name", &jpack.String{}).
-    Field("price", &jpack.Number{}).
-    FieldWithDefault("status", &jpack.String{}, "active").
-    Build()
-
-// Access fields
-nameField, exists := schema.Field("name")
-if exists {
-    fmt.Printf("Field name: %s\n", nameField.Name())
-}
-
-// List all fields
-for _, field := range schema.Fields() {
-    fmt.Printf("Field: %s, Type: %T\n", field.Name(), field.Type())
-}
-```
-
-### Field Types
-
-JPack includes built-in field types and allows custom implementations:
-
-#### Built-in Types
-
-**String Type**
-- Validates string values
-- Handles nil values and pointers
-- Automatic type conversion for database operations
-
-**Number Type**
-- Validates integer values (int, int8, int16, int32, int64)
-- Supports string representations of numbers
-- Handles nil values and pointers
-- Automatic conversion to int for storage
-
-**DateTime Type**
-- Validates `time.Time` values and RFC3339 formatted strings
-- Automatically converts all times to GMT (UTC) timezone
-- Supports timezone-aware strings (e.g., "2024-12-25T10:00:00+05:30")
-- Handles nil values and pointers
-- Stores all datetime values in GMT for consistency
-
-**Boolean Type**
-- Validates boolean values with flexible input conversion
-- Supports string representations: "true"/"false", "1"/"0", "yes"/"no", "on"/"off", "enabled"/"disabled"
-- Case-insensitive string parsing with whitespace trimming
-- Converts numeric values (non-zero = true, zero = false)
-- Handles nil values and pointers
-- Automatic type conversion for database operations
-
-**Options Type**
-- Validates string values against a dynamic list of options from a service
-- Uses `OptionService` interface to get available options with `uniqueName` and `displayName`
-- `uniqueName` is used for database storage and validation
-- `displayName` is used for client display purposes
-- Supports dynamic option lists that can change at runtime
-- Handles nil values and pointers
-- Provides clear error messages for invalid options
-
-```go
-// Using built-in types
-stringField := &jpack.String{}
-numberField := &jpack.Number{}
-dateTimeField := &jpack.DateTime{}
-booleanField := &jpack.Boolean{}
-
-// Create an options service
-type StatusService struct{}
-func (s *StatusService) GetOptions(ctx context.Context) ([]jpack.Option, error) {
-    return []jpack.Option{
-        {UniqueName: "active", DisplayName: "Active"},
-        {UniqueName: "inactive", DisplayName: "Inactive"},
-        {UniqueName: "pending", DisplayName: "Pending"},
-    }, nil
-}
-
-// Or use the built-in in-memory service
-statusOptions := []jpack.Option{
-    {UniqueName: "active", DisplayName: "Active"},
-    {UniqueName: "inactive", DisplayName: "Inactive"},
-    {UniqueName: "pending", DisplayName: "Pending"},
-}
-inMemoryService := jpack.NewInMemoryOptionService(statusOptions)
-
-optionsField := jpack.NewOptions(&StatusService{})
-// or
-optionsField := jpack.NewOptions(inMemoryService)
-
-// Validate values (uses uniqueName for validation)
-err := stringField.Validate("hello")        // nil - valid
-err = stringField.Validate(123)             // error - not a string
-err = numberField.Validate(42)              // nil - valid
-err = numberField.Validate("123")           // nil - valid (converts to int)
-err = dateTimeField.Validate(time.Now())    // nil - valid
-err = dateTimeField.Validate("2024-12-25T10:00:00Z") // nil - valid
-err = dateTimeField.Validate("2024-12-25T10:00:00+05:30") // nil - valid (converts to GMT)
-err = booleanField.Validate(true)           // nil - valid
-err = booleanField.Validate("yes")          // nil - valid (converts to true)
-err = booleanField.Validate(1)              // nil - valid (converts to true)
-err = booleanField.Validate("invalid")      // error - invalid boolean string
-err = optionsField.Validate("active")       // nil - valid (uses uniqueName)
-err = optionsField.Validate("invalid")      // error - not in options list
-```
-
-#### Custom Field Types
-
-Implement the `JFieldType` interface to create custom field types:
-
-```go
-type EmailType struct{}
-
-func (e *EmailType) Validate(value any) error {
-    str, ok := value.(string)
-    if !ok {
-        return errors.New("email must be a string")
+    // Create MongoDB client
+    client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+    if err != nil {
+        log.Fatal(err)
     }
-    
-    // Simple email validation
-    if !strings.Contains(str, "@") {
-        return errors.New("invalid email format")
+    defer client.Close(context.Background())
+
+    // Define user schema
+    userSchema := schema.NewJSchema("User").
+        AddField("id", schema.JString, nil).
+        AddField("name", schema.JString, nil).
+        AddField("email", schema.JString, nil).
+        AddField("age", schema.JInt, 18)
+
+    // Add validations
+    userSchema.Field("name").(schema.JField).SetRequired(true)
+    userSchema.Field("email").(schema.JField).SetRequired(true).SetUnique(true)
+    userSchema.AddValidation(validation.ValidateEmail("email"))
+    userSchema.AddValidation(validation.ValidateRange("age", 0, 150))
+
+    // Register schema
+    err = client.RegisterSchema(userSchema)
+    if err != nil {
+        log.Fatal(err)
     }
-    
-    return nil
-}
-
-func (e *EmailType) Scan(ctx context.Context, field jpack.JField, row map[string]any) (any, error) {
-    v, ok := row[field.Name()]
-    if !ok || v == nil {
-        return nil, nil
-    }
-    return v.(string), nil
-}
-
-func (e *EmailType) SetValue(ctx context.Context, field jpack.JField, value any, row map[string]any) error {
-    if err := e.Validate(value); err != nil {
-        return err
-    }
-    row[field.Name()] = value
-    return nil
-}
-
-// Use custom type in schema
-userSchema := jpack.NewSchema("users").
-    Field("email", &EmailType{}).
-    Build()
-```
-
-### Records
-
-Records represent individual data instances that conform to a schema:
-
-```go
-record := jpack.NewMongoRecord(userSchema)
-
-// Set values
-emailField, _ := userSchema.Field("email")
-record.SetValue(emailField, "user@example.com")
-
-// Get values
-value, exists := record.Value(emailField)
-if exists {
-    fmt.Printf("Email: %s\n", value)
-}
-
-// Check record state
-fmt.Printf("Is new: %v\n", record.IsNew())
-fmt.Printf("Is modified: %v\n", record.IsModified())
-fmt.Printf("Dirty keys: %v\n", record.DirtyKeys())
-
-// Validate record
-if err := record.Validate(); err != nil {
-    fmt.Printf("Validation error: %v\n", err)
 }
 ```
 
-### Edges (Relationships)
-
-Define relationships between schemas:
+### 2. Create and Save Records
 
 ```go
-// Define related schemas
-userSchema := jpack.NewSchema("users").
-    Field("id", &jpack.String{}).
-    Field("name", &jpack.String{}).
-    Build()
-
-postSchema := jpack.NewSchema("posts").
-    Field("id", &jpack.String{}).
-    Field("title", &jpack.String{}).
-    Field("user_id", &jpack.String{}).
-    Build()
-
-// Add edge to represent relationship
-userIdField, _ := postSchema.Field("user_id")
-postSchemaWithEdge := jpack.NewSchema("posts").
-    Field("id", &jpack.String{}).
-    Field("title", &jpack.String{}).
-    Field("user_id", &jpack.String{}).
-    Edge("user", userSchema, userIdField).
-    Build()
-
-// Access edges
-edges := postSchemaWithEdge.Edge()
-for _, edge := range edges {
-    fmt.Printf("Edge: %s -> %s\n", edge.Name(), edge.Schema().Name())
-}
-```
-
-## MongoDB Integration
-
-JPack provides seamless MongoDB integration with automatic BSON conversion:
-
-### Connection Setup
-
-```go
-import (
-    "context"
-    "go.mongodb.org/mongo-driver/v2/mongo"
-    "go.mongodb.org/mongo-driver/v2/mongo/options"
-)
-
-// Connect to MongoDB
-client, err := mongo.Connect(options.Client().ApplyURI("mongodb://localhost:27017"))
+// Get repository
+userRepo, err := client.GetRepository("User")
 if err != nil {
-    panic(err)
+    log.Fatal(err)
 }
-defer client.Disconnect(context.TODO())
 
-// Create context with database connection
-ctx := context.WithValue(context.Background(), jpack.Conn, client.Database("myapp"))
+// Create a user record
+user := schema.NewJRecord().
+    Set("id", "user_001").
+    Set("name", "John Doe").
+    Set("email", "john@example.com").
+    Set("age", 30)
+
+// Save user
+savedUser, err := userRepo.Save(context.Background(), user)
+if err != nil {
+    log.Fatal(err)
+}
+
+fmt.Printf("Saved user: %+v\n", savedUser.ToMap())
 ```
 
-### Record Operations
+### 3. Query Records
 
 ```go
-// Create new record
-record := jpack.NewMongoRecord(userSchema)
-
-// Insert new record
-nameField, _ := userSchema.Field("name")
-record.SetValue(nameField, "John Doe")
-
-err := record.Save(ctx) // Inserts new document
+// Find by ID
+foundUser, err := userRepo.FindById(context.Background(), "user_001")
 if err != nil {
-    panic(err)
+    log.Fatal(err)
 }
 
-// Update existing record
-record.SetValue(nameField, "Jane Doe")
-err = record.Save(ctx) // Updates existing document
+// Query with criteria
+criteria := repository.NewJCriteriaBuilder().
+    Where("age", repository.OpGTE, 18).
+    OrderBy("name").
+    SetLimit(10).
+    Build()
+
+users, err := userRepo.FindBy(context.Background(), criteria)
 if err != nil {
-    panic(err)
+    log.Fatal(err)
+}
+
+// Count records
+count, err := userRepo.Count(context.Background(), repository.JCriteria{})
+if err != nil {
+    log.Fatal(err)
 }
 ```
 
-### Automatic ID Management
-
-JPack automatically manages MongoDB ObjectIDs:
+### 4. Update and Delete
 
 ```go
-// After saving a new record
-idField, _ := userSchema.Field("id")
-id, exists := record.Value(idField)
-if exists {
-    fmt.Printf("Generated ID: %s\n", id) // Hex string representation
-}
+// Update records
+updateCriteria := repository.NewJCriteriaBuilder().
+    Where("id", repository.OpEQ, "user_001").
+    Build()
 
-// The ID is automatically used for updates
-record.SetValue(nameField, "Updated Name")
-record.Save(ctx) // Uses the ID for UpdateByID operation
+updates := schema.NewJRecord().Set("age", 31)
+err = userRepo.Update(context.Background(), updateCriteria, updates)
+
+// Delete record
+err = userRepo.Delete(context.Background(), "user_001")
 ```
 
 ## Advanced Features
 
-### Field Defaults
+### Custom Operators
 
-Set default values for fields:
+JPack supports pluggable operators for custom query logic:
 
 ```go
-schema := jpack.NewSchema("products").
-    Field("name", &jpack.String{}).
-    FieldWithDefault("status", &jpack.String{}, "active").
-    FieldWithDefault("quantity", &jpack.Number{}, 0).
+// Register custom operator
+customOp := repository.NewBasicOperator("IS_TODAY", func(field string, _ any) any {
+    todayStart := time.Now().Truncate(24 * time.Hour)
+    tomorrow := todayStart.Add(24 * time.Hour)
+    return bson.M{field: bson.M{
+        "$gte": todayStart,
+        "$lt":  tomorrow,
+    }}
+})
+
+repository.RegisterOperator(customOp)
+
+// Use custom operator
+criteria := repository.NewJCriteriaBuilder().
+    WhereIsToday("created_at").
     Build()
-
-// Access default values
-statusField, _ := schema.Field("status")
-defaultStatus := statusField.Default()
-fmt.Printf("Default status: %v\n", defaultStatus) // "active"
 ```
 
-### Record State Tracking
+### Lifecycle Hooks
 
-Track changes to records:
+Register hooks for various lifecycle events:
 
 ```go
-record := jpack.NewMongoRecord(userSchema)
+// Register hooks
+err := hooks.RegisterBeforeSaveHook("timestamp", func(ctx context.Context, rec schema.JRecord) error {
+    rec.Set("updated_at", time.Now())
+    return nil
+}, 100, "Add timestamp")
 
-// Initially, record is new and not modified
-fmt.Printf("Is new: %v\n", record.IsNew())         // true
-fmt.Printf("Is modified: %v\n", record.IsModified()) // false
-
-// Set a value
-nameField, _ := userSchema.Field("name")
-record.SetValue(nameField, "John")
-
-// Now record is modified
-fmt.Printf("Is modified: %v\n", record.IsModified()) // true
-fmt.Printf("Dirty keys: %v\n", record.DirtyKeys())   // ["name"]
-
-// After saving
-record.Save(ctx)
-fmt.Printf("Is new: %v\n", record.IsNew())         // false
-fmt.Printf("Is modified: %v\n", record.IsModified()) // false
+err = hooks.RegisterAfterSaveHook("logging", func(ctx context.Context, rec schema.JRecord) error {
+    log.Printf("Saved record: %+v", rec.ToMap())
+    return nil
+}, 50, "Log save operation")
 ```
 
-### Error Handling
+### Custom Converters
 
-JPack provides detailed error information:
+Create custom type converters:
 
 ```go
-// Field validation errors
-numberField := &jpack.Number{}
-err := numberField.Validate("not a number")
-if err != nil {
-    fmt.Printf("Validation error: %v\n", err)
+// Money converter
+type Money struct {
+    Amount   float64 `json:"amount"`
+    Currency string  `json:"currency"`
 }
 
-// Record validation errors
-record := jpack.NewMongoRecord(userSchema)
-err = record.Validate()
-if err != nil {
-    fmt.Printf("Record validation error: %v\n", err)
-}
+moneyConverter := converter.NewCustomConverter(
+    "money",
+    func(value any) (any, error) {
+        if m, ok := value.(Money); ok {
+            return map[string]any{
+                "amount":   m.Amount,
+                "currency": m.Currency,
+            }, nil
+        }
+        return nil, fmt.Errorf("invalid money type")
+    },
+    func(raw any) (any, error) {
+        if m, ok := raw.(map[string]any); ok {
+            return Money{
+                Amount:   m["amount"].(float64),
+                Currency: m["currency"].(string),
+            }, nil
+        }
+        return nil, fmt.Errorf("invalid money data")
+    },
+)
 
-// Save errors
-err = record.Save(ctx)
-if err != nil {
-    fmt.Printf("Save error: %v\n", err)
-}
+converter.RegisterConverter(moneyConverter)
 ```
 
-## Testing
-
-Run the test suite:
-
-```bash
-# Run all tests
-go test ./...
-
-# Run with coverage
-go test -cover ./...
-
-# Run specific test files
-go test -v jschema_test.go
-go test -v field_types_test.go
-go test -v mongodb_test.go
-```
-
-### MongoDB Testing
-
-For MongoDB tests, ensure you have a MongoDB instance running:
-
-```bash
-# Start MongoDB (using Docker)
-docker run -d -p 27017:27017 --name mongodb mongo:latest
-
-# Run MongoDB tests
-go test -v mongodb_test.go
-```
-
-## API Reference
-
-### Core Interfaces
-
-#### JSchema
-```go
-type JSchema interface {
-    Name() string
-    Fields() []JField
-    Field(name string) (JField, bool)
-    AddField(field JField) JSchema
-    Edge() []JEdge
-    AddEdge(edge JEdge) JSchema
-    Validate(JRecord) error
-}
-```
-
-#### JField
-```go
-type JField interface {
-    Name() string
-    Type() JFieldType
-    Schema() JSchema
-    Default() any
-}
-```
-
-#### JFieldType
-```go
-type JFieldType interface {
-    Validate(value any) error
-    Scan(ctx context.Context, field JField, row map[string]any) (value any, err error)
-    SetValue(ctx context.Context, field JField, value any, row map[string]any) error
-}
-```
-
-#### JRecord
-```go
-type JRecord interface {
-    Schema() JSchema
-    Value(JField) (any, bool)
-    SetValue(field JField, value any) error
-    Fields() []JField
-    IsModified() bool
-    IsNew() bool
-    DirtyKeys() []string
-    Save(ctx context.Context) error
-    Validate() error
-}
-```
-
-### Schema Builder Methods
+### Projections and Aggregations
 
 ```go
-func NewSchema(name string) *SchemaBuilder
-func (s *SchemaBuilder) Field(name string, fType JFieldType) *SchemaBuilder
-func (s *SchemaBuilder) FieldWithDefault(name string, fType JFieldType, defaultValue any) *SchemaBuilder
-func (s *SchemaBuilder) Edge(name string, schema JSchema, field JField) *SchemaBuilder
-func (s *SchemaBuilder) Build() JSchema
+// Field projections
+projection := projection.NewIncludeProjection("name", "email")
+users, err := userRepo.FindBy(context.Background(), repository.JCriteria{
+    Projection: projection.Fields,
+})
+
+// Aggregations
+collection := client.GetDatabase().Collection("User")
+aggExecutor := projection.NewAggregationExecutor(collection)
+aggService := projection.NewAggregationService(aggExecutor)
+
+// Count users
+count, err := aggService.Count(context.Background(), repository.JCriteria{})
+
+// Average age
+avgAge, err := aggService.Avg(context.Background(), repository.JCriteria{}, "age")
 ```
 
-### MongoDB Functions
+### Index Management
 
 ```go
-func NewMongoRecord(schema JSchema) *mongoRecord
-func MustConn(ctx context.Context) *mongo.Database
+// Create indexes based on schema
+err = client.CreateIndexesForSchema(context.Background(), "User")
+
+// Custom index creation
+indexManager := mongo.NewIndexManager(collection, userSchema)
+indexDef := mongo.IndexDefinition{
+    Fields: []mongo.IndexField{
+        {Name: "email", Type: mongo.IndexAscending},
+    },
+    Options: mongo.IndexOption{
+        Unique: true,
+        Sparse: true,
+    },
+}
+err = indexManager.CreateCustomIndex(context.Background(), indexDef)
 ```
+
+## Schema Definition
+
+### Immutable Schemas
+
+JPack uses immutable schemas to ensure consistency and prevent accidental modifications. Once a schema is registered, it cannot be modified directly. To make changes, you must create a new schema and replace the existing one.
+
+```go
+// Create a mutable schema
+userSchema := schema.NewJSchema("User")
+userSchema.AddField("id", schema.JString, nil)
+userSchema.AddField("name", schema.JString, nil)
+
+// Register the schema (automatically makes it immutable)
+client.RegisterSchema(userSchema)
+
+// To modify, create a new schema and replace
+updatedSchema := schema.NewJSchema("User")
+updatedSchema.AddField("id", schema.JString, nil)
+updatedSchema.AddField("name", schema.JString, nil)
+updatedSchema.AddField("email", schema.JString, nil) // New field
+
+// Replace the existing schema
+client.RegisterSchema(updatedSchema) // This will replace the old one
+```
+
+### Schema Builder
+
+Use the fluent SchemaBuilder for cleaner schema creation:
+
+```go
+userSchema := schema.NewSchemaBuilder("User").
+    AddRequiredUniqueField("id", schema.JString, nil).
+    AddRequiredField("name", schema.JString, nil).
+    AddRequiredUniqueField("email", schema.JString, nil).
+    AddField("age", schema.JInt, 18).
+    SetIDField("id").
+    AddValidation(func(ctx context.Context, rec schema.JRecord) error {
+        // Custom validation logic
+        return nil
+    }).
+    BuildImmutable() // Makes the schema immutable
+```
+
+### Field Types
+
+- `JString` - String
+- `JInt` - Integer
+- `JInt64` - 64-bit integer
+- `JFloat` - Float32
+- `JFloat64` - Float64
+- `JBool` - Boolean
+- `JTime` - Time.Time
+- `JObject` - Object/Map
+- `JArray` - Array/Slice
+- `JBinary` - Binary data
+- `JObjectID` - MongoDB ObjectID
+
+### Field Options
+
+```go
+field := schema.NewJField("email", schema.JString, nil)
+field.SetRequired(true)
+field.SetUnique(true)
+field.SetValidation(validation.ValidateEmail("email"))
+```
+
+### Schema Validations
+
+```go
+schema.AddValidation(validation.ValidateMinLength("name", 2))
+schema.AddValidation(validation.ValidateMaxLength("name", 100))
+schema.AddValidation(validation.ValidateRange("age", 0, 150))
+schema.AddValidation(validation.ValidateFieldsEqual("password", "confirmPassword"))
+```
+
+### Schema Evolution
+
+For schema evolution, use the replacement pattern:
+
+```go
+// Version 1
+v1Schema := schema.NewSchemaBuilder("User").
+    AddRequiredUniqueField("id", schema.JString, nil).
+    AddRequiredField("name", schema.JString, nil).
+    BuildImmutable()
+
+client.RegisterSchema(v1Schema)
+
+// Version 2 - Add email field
+v2Schema := schema.NewSchemaBuilder("User").
+    AddRequiredUniqueField("id", schema.JString, nil).
+    AddRequiredField("name", schema.JString, nil).
+    AddRequiredUniqueField("email", schema.JString, nil). // New field
+    BuildImmutable()
+
+// Replace the schema
+client.RegisterSchema(v2Schema)
+```
+
+## Query API
+
+### Built-in Operators
+
+- `OpEQ` - Equals
+- `OpNE` - Not equals
+- `OpGT` - Greater than
+- `OpGTE` - Greater than or equal
+- `OpLT` - Less than
+- `OpLTE` - Less than or equal
+- `OpIN` - In array
+- `OpNIN` - Not in array
+- `OpEXISTS` - Field exists
+- `OpREGEX` - Regular expression
+- `OpCONTAINS` - Contains text
+- `OpSTARTS_WITH` - Starts with
+- `OpENDS_WITH` - Ends with
+- `OpIS_NULL` - Is null
+- `OpIS_NOT_NULL` - Is not null
+- `OpIS_TODAY` - Is today
+- `OpIS_WEEKEND` - Is weekend
+- `OpIS_WITHIN_BUSINESS_HOURS` - Within business hours
+
+### Query Builder
+
+```go
+criteria := repository.NewJCriteriaBuilder().
+    Where("age", repository.OpGTE, 18).
+    Where("status", repository.OpEQ, "active").
+    WhereIn("category", []any{"electronics", "clothing"}).
+    OrderBy("name").
+    OrderByDesc("created_at").
+    SetLimit(10).
+    SetOffset(0).
+    Build()
+```
+
+## Validation
+
+### Field Validations
+
+```go
+// Required validation
+validation.ValidateRequired("name")
+
+// Length validations
+validation.ValidateMinLength("name", 2)
+validation.ValidateMaxLength("name", 100)
+
+// Value validations
+validation.ValidateMinValue("age", 0)
+validation.ValidateMaxValue("age", 150)
+validation.ValidateRange("age", 0, 150)
+
+// Format validations
+validation.ValidateEmail("email")
+validation.ValidateRegex("phone", `^\d{10}$`)
+
+// List validations
+validation.ValidateFieldIn("status", []any{"active", "inactive"})
+validation.ValidateFieldNotIn("status", []any{"deleted"})
+```
+
+### Cross-field Validations
+
+```go
+// Field equality
+validation.ValidateFieldsEqual("password", "confirmPassword")
+
+// Field inequality
+validation.ValidateFieldsNotEqual("email", "username")
+
+// Field comparisons
+validation.ValidateFieldGreaterThan("endDate", "startDate")
+validation.ValidateFieldLessThan("startDate", "endDate")
+```
+
+## Hooks
+
+### Hook Types
+
+- `HookBeforeSave` - Before saving
+- `HookAfterSave` - After saving
+- `HookBeforeDelete` - Before deleting
+- `HookAfterDelete` - After deleting
+- `HookBeforeFind` - Before finding
+- `HookAfterFind` - After finding
+- `HookBeforeUpdate` - Before updating
+- `HookAfterUpdate` - After updating
+
+### Built-in Hooks
+
+```go
+// Timestamp hook
+timestampHook := hooks.NewTimestampHook("created_at", "updated_at")
+
+// Validation hook
+validationHook := hooks.NewValidationHook(schema)
+
+// Logging hook
+loggingHook := hooks.NewLoggingHook(logger)
+
+// Audit hook
+auditHook := hooks.NewAuditHook("audit_info")
+
+// Soft delete hook
+softDeleteHook := hooks.NewSoftDeleteHook("deleted_at", "deleted_by")
+
+// Cache hook
+cacheHook := hooks.NewCacheHook(cache)
+```
+
+## Examples
+
+See the `examples/` directory for complete working examples:
+
+- `user_example.go` - Basic user management
+- `product_example.go` - Product catalog with complex queries
+- `custom_converter_example.go` - Custom type converters
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
+3. Make your changes
+4. Add tests
 5. Submit a pull request
 
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Dependencies
+## Support
 
-- [go.mongodb.org/mongo-driver/v2](https://github.com/mongodb/mongo-go-driver) - MongoDB driver
-- [github.com/rs/zerolog](https://github.com/rs/zerolog) - Logging
-- [github.com/samber/mo](https://github.com/samber/mo) - Monadic operations
-- [github.com/stretchr/testify](https://github.com/stretchr/testify) - Testing framework
-
-## Examples
-
-See the `*_test.go` files for more comprehensive examples of usage patterns and best practices.
+For questions, issues, or contributions, please open an issue on GitHub.
