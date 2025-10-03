@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kabi175/jpack/logger"
+	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
 )
 
@@ -72,7 +74,18 @@ func (f *FileSchemaSource) Load(schemaName string) (JSchema, error) {
 			return nil, fmt.Errorf("schema '%s' not found in bulk file %s", schemaName, f.Path)
 		}
 		// Return the first schema if no specific name requested
-		return ConvertDefToSchema(bulkDefs[0])
+		schemaDef, ok := lo.Find(bulkDefs, func(def SchemaDef) bool {
+			return def.Name == schemaName
+		})
+		if !ok {
+			logger.Schema.Error().
+				Str("schema", schemaName).
+				Str("file", f.Path).
+				Msg("schema not found in bulk file")
+
+			return nil, fmt.Errorf("schema '%s' not found in bulk file %s", schemaName, f.Path)
+		}
+		return ConvertDefToSchema(schemaDef)
 	}
 
 	// If bulk loading failed, try single schema (SchemaDef)
