@@ -21,16 +21,22 @@ const (
 	JObjectID JFieldType = "objectid"
 )
 
-// JField represents a field in a schema
+// JField represents a field in a schema (always immutable)
 type JField interface {
 	Name() string
 	Type() JFieldType
 	DefaultValue() any
 	IsRequired() bool
-	SetRequired(required bool) JField
 	IsUnique() bool
-	SetUnique(unique bool) JField
 	Validation() ValidationFunc
+	String() string
+
+	// Update creates a new field with modifications applied via callback
+	Update(fn func(*FieldBuilder)) JField
+
+	// Backward compatibility methods (return new instances)
+	SetRequired(required bool) JField
+	SetUnique(unique bool) JField
 	SetValidation(fn ValidationFunc) JField
 	IsImmutable() bool
 	Freeze() JField
@@ -76,26 +82,30 @@ type JRecord interface {
 // ValidationFunc represents a validation function
 type ValidationFunc func(ctx context.Context, rec JRecord) error
 
-// JSchema represents a schema definition
+// JSchema represents a schema definition (always immutable)
 type JSchema interface {
+	// Read-only accessors
 	Name() string
 	Fields() []JField
 	Field(name string) (JField, bool)
-	AddField(name string, fType JFieldType, defaultValue any) JField
-	AddRef(name string, schema JSchema) JRef
 	Refs() []JRef
 	Ref(name string) (JRef, bool)
 	Edges() []JEdge
-	AddEdge(edge JEdge) JSchema
-	Validate(ctx context.Context, rec JRecord) error
-	AddValidation(fn ValidationFunc)
 	Validations() []ValidationFunc
 	GetIDField() JField
-	SetIDField(field JField) JSchema
-	IsImmutable() bool
-	Clone() JSchema
-	Freeze() JSchema
 	String() string
+
+	// Validation
+	Validate(ctx context.Context, rec JRecord) error
+
+	// Update creates a new schema with modifications applied via callback
+	// The callback receives a SchemaBuilder initialized with a clone of this schema
+	Update(fn func(*SchemaBuilder)) JSchema
+
+	// Backward compatibility methods
+	Clone() JSchema
+	IsImmutable() bool
+	Freeze() JSchema
 }
 
 // ExternalSchemaSource represents a source for schema definitions

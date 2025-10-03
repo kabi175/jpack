@@ -16,10 +16,10 @@ func LazyRegistryExample() {
 
 	// Example 1: Eager registration
 	fmt.Println("=== Eager Registration Example ===")
-	userSchema := schema.NewJSchema("User")
-	userSchema.AddField("id", schema.JString, nil)
-	userSchema.AddField("email", schema.JString, nil)
-	userSchema.AddField("name", schema.JString, nil)
+	userSchema := schema.NewSchemaBuilder("User").
+		AddField("email", schema.JString, nil).
+		AddField("name", schema.JString, nil).
+		Build()
 
 	err := registry.Register(userSchema)
 	if err != nil {

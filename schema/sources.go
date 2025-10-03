@@ -123,7 +123,8 @@ func ConvertDefToSchema(def SchemaDef) (JSchema, error) {
 		return nil, fmt.Errorf("schema name cannot be empty")
 	}
 
-	schema := NewJSchema(def.Name)
+	// Use SchemaBuilder to create the schema
+	builder := NewSchemaBuilder(def.Name)
 
 	// Add fields
 	for fieldName, fieldDef := range def.Fields {
@@ -132,12 +133,15 @@ func ConvertDefToSchema(def SchemaDef) (JSchema, error) {
 			return nil, fmt.Errorf("invalid field type '%s' for field '%s': %w", fieldDef.Type, fieldName, err)
 		}
 
-		field := schema.AddField(fieldName, fieldType, fieldDef.DefaultValue)
-		if fieldDef.Required {
-			field.SetRequired(true)
-		}
-		if fieldDef.Unique {
-			field.SetUnique(true)
+		// Create field with properties
+		if fieldDef.Required && fieldDef.Unique {
+			builder.AddRequiredUniqueField(fieldName, fieldType, fieldDef.DefaultValue)
+		} else if fieldDef.Required {
+			builder.AddRequiredField(fieldName, fieldType, fieldDef.DefaultValue)
+		} else if fieldDef.Unique {
+			builder.AddUniqueField(fieldName, fieldType, fieldDef.DefaultValue)
+		} else {
+			builder.AddField(fieldName, fieldType, fieldDef.DefaultValue)
 		}
 	}
 
@@ -145,27 +149,29 @@ func ConvertDefToSchema(def SchemaDef) (JSchema, error) {
 	for refName, refDef := range def.Refs {
 		// For now, we'll create a placeholder schema for the reference
 		// In a real implementation, you might want to resolve this differently
-		targetSchema := NewJSchema(refDef.TargetSchema)
-		schema.AddRef(refName, targetSchema)
+		targetSchema := NewSchemaBuilder(refDef.TargetSchema).Build()
 		if refDef.IsArray {
-			// Note: JRef interface doesn't have SetIsArray method in current implementation
-			// This would need to be added to support array references
+			builder.AddArrayRef(refName, targetSchema)
+		} else {
+			builder.AddRef(refName, targetSchema)
 		}
 	}
 
 	// Add edges
 	for _, edgeDef := range def.Edges {
-		targetSchema := NewJSchema(edgeDef.TargetSchema)
+		targetSchema := NewSchemaBuilder(edgeDef.TargetSchema).Build()
 		edgeType, err := parseEdgeType(edgeDef.Type)
 		if err != nil {
 			return nil, fmt.Errorf("invalid edge type '%s' for edge '%s': %w", edgeDef.Type, edgeDef.Name, err)
 		}
 
-		edge := NewJEdge(edgeDef.Name, schema, targetSchema, edgeType)
-		schema.AddEdge(edge)
+		// Create a temporary schema for the edge (this is a limitation of the current design)
+		tempSchema := builder.Build()
+		edge := NewJEdge(edgeDef.Name, tempSchema, targetSchema, edgeType)
+		builder.AddEdge(edge)
 	}
 
-	return schema, nil
+	return builder.Build(), nil
 }
 
 // parseFieldType converts string to JFieldType

@@ -2,7 +2,6 @@ package schema
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,28 +21,30 @@ func TestNewJSchema(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			schema := NewJSchema(tt.schemaName)
+			schema := NewSchemaBuilder(tt.schemaName).Build()
 			assert.Equal(t, tt.expected, schema.Name())
-			assert.False(t, schema.IsImmutable())
-			assert.Empty(t, schema.Fields())
+			assert.True(t, schema.IsImmutable()) // All schemas are now immutable
+			assert.Len(t, schema.Fields(), 1)    // Automatic ID field
 			assert.Empty(t, schema.Refs())
 			assert.Empty(t, schema.Edges())
 			assert.Empty(t, schema.Validations())
-			assert.Nil(t, schema.GetIDField())
+			assert.NotNil(t, schema.GetIDField()) // Automatic ID field
+			assert.Equal(t, "id", schema.GetIDField().Name())
 		})
 	}
 }
 
 func TestNewImmutableJSchema(t *testing.T) {
-	schema := NewImmutableJSchema("TestSchema")
+	schema := NewSchemaBuilder("TestSchema").Build()
 
 	assert.Equal(t, "TestSchema", schema.Name())
 	assert.True(t, schema.IsImmutable())
-	assert.Empty(t, schema.Fields())
+	assert.Len(t, schema.Fields(), 1) // Automatic ID field
 	assert.Empty(t, schema.Refs())
 	assert.Empty(t, schema.Edges())
 	assert.Empty(t, schema.Validations())
-	assert.Nil(t, schema.GetIDField())
+	assert.NotNil(t, schema.GetIDField()) // Automatic ID field
+	assert.Equal(t, "id", schema.GetIDField().Name())
 }
 
 func TestJSchema_AddField(t *testing.T) {
@@ -65,230 +66,283 @@ func TestJSchema_AddField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			schema := NewJSchema("TestSchema")
-			field := schema.AddField(tt.fieldName, tt.fieldType, tt.defaultValue)
-
-			assert.Equal(t, tt.fieldName, field.Name())
-			assert.Equal(t, tt.expectedType, field.Type())
-			assert.Equal(t, tt.defaultValue, field.DefaultValue())
-			assert.False(t, field.IsRequired())
-			assert.False(t, field.IsUnique())
-			assert.False(t, field.IsImmutable())
+			schema := NewSchemaBuilder("TestSchema").
+				AddField(tt.fieldName, tt.fieldType, tt.defaultValue).
+				Build()
 
 			// Check that field was added to schema
 			retrievedField, exists := schema.Field(tt.fieldName)
 			assert.True(t, exists)
-			assert.Equal(t, field, retrievedField)
+			assert.Equal(t, tt.fieldName, retrievedField.Name())
+			assert.Equal(t, tt.expectedType, retrievedField.Type())
+			assert.Equal(t, tt.defaultValue, retrievedField.DefaultValue())
+			assert.False(t, retrievedField.IsRequired())
+			assert.False(t, retrievedField.IsUnique())
+			assert.True(t, retrievedField.IsImmutable()) // All fields are now immutable
 
-			// Check that it's the first field and becomes ID field
-			if len(schema.Fields()) == 1 {
-				assert.Equal(t, field, schema.GetIDField())
+			// Check that ID field is automatically created
+			if len(schema.Fields()) == 2 { // id + the added field
+				idField := schema.GetIDField()
+				assert.Equal(t, "id", idField.Name())
+				assert.True(t, idField.IsRequired())
+				assert.True(t, idField.IsUnique())
 			}
 		})
 	}
 }
 
 func TestJSchema_AddField_Immutable(t *testing.T) {
-	schema := NewImmutableJSchema("TestSchema")
+	schema := NewSchemaBuilder("TestSchema").Build()
 
-	assert.Panics(t, func() {
-		schema.AddField("name", JString, "default")
-	}, "should panic when adding field to immutable schema")
+	// All schemas are now immutable, so AddField should not be available
+	// This test verifies that the old mutation methods are no longer available
+	// The new way is to use Update() method
+	updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+		sb.AddField("name", JString, "default")
+	})
+
+	// Verify the field was added
+	field, exists := updatedSchema.Field("name")
+	assert.True(t, exists)
+	assert.Equal(t, "name", field.Name())
+	assert.Equal(t, JString, field.Type())
 }
 
 func TestJSchema_AddField_Duplicate(t *testing.T) {
-	schema := NewJSchema("TestSchema")
-
-	// Add first field
-	field1 := schema.AddField("name", JString, "default")
+	schema := NewSchemaBuilder("TestSchema").
+		AddField("name", JString, "default").
+		Build()
 
 	// Add field with same name (should overwrite)
-	field2 := schema.AddField("name", JInt, 42)
+	updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+		sb.AddField("name", JInt, 42)
+	})
 
-	assert.Equal(t, "name", field2.Name())
-	assert.Equal(t, JInt, field2.Type())
-	assert.Equal(t, 42, field2.DefaultValue())
+	field, exists := updatedSchema.Field("name")
+	assert.True(t, exists)
+	assert.Equal(t, "name", field.Name())
+	assert.Equal(t, JInt, field.Type())
+	assert.Equal(t, 42, field.DefaultValue())
 
-	// Should only have one field
-	assert.Len(t, schema.Fields(), 1)
+	// Should have two fields (id + name)
+	assert.Len(t, updatedSchema.Fields(), 2)
 
-	// ID field should still be the first field added
-	assert.Equal(t, field1, schema.GetIDField())
+	// ID field should be the automatic ID field
+	idField := updatedSchema.GetIDField()
+	assert.Equal(t, "id", idField.Name())
+	assert.True(t, idField.IsRequired())
+	assert.True(t, idField.IsUnique())
 }
 
 func TestJSchema_Field(t *testing.T) {
-	schema := NewJSchema("TestSchema")
+	schema := NewSchemaBuilder("TestSchema").
+		AddField("name", JString, "default").
+		Build()
 
 	// Test non-existent field
 	field, exists := schema.Field("nonexistent")
 	assert.False(t, exists)
 	assert.Nil(t, field)
 
-	// Add field and test retrieval
-	addedField := schema.AddField("name", JString, "default")
+	// Test field retrieval (field was added during schema creation)
 	retrievedField, exists := schema.Field("name")
 
 	assert.True(t, exists)
-	assert.Equal(t, addedField, retrievedField)
+	assert.Equal(t, "name", retrievedField.Name())
+	assert.Equal(t, JString, retrievedField.Type())
+	assert.Equal(t, "default", retrievedField.DefaultValue())
 }
 
 func TestJSchema_AddRef(t *testing.T) {
-	userSchema := NewJSchema("User")
-	orderSchema := NewJSchema("Order")
+	userSchema := NewSchemaBuilder("User").Build()
+	orderSchema := NewSchemaBuilder("Order").
+		AddRef("user", userSchema).
+		Build()
 
-	// Add reference
-	ref := orderSchema.AddRef("user", userSchema)
+	// Get reference
+	ref, exists := orderSchema.Ref("user")
+	assert.True(t, exists)
 
 	assert.Equal(t, "user", ref.Name())
 	assert.Equal(t, userSchema, ref.TargetSchema())
 	assert.False(t, ref.IsArray())
 
 	// Check that ref was added to schema
-	retrievedRef, exists := orderSchema.Ref("user")
-	assert.True(t, exists)
-	assert.Equal(t, ref, retrievedRef)
+	assert.Len(t, orderSchema.Refs(), 1)
 }
 
 func TestJSchema_AddRef_Immutable(t *testing.T) {
-	schema := NewImmutableJSchema("TestSchema")
-	targetSchema := NewJSchema("Target")
+	schema := NewSchemaBuilder("TestSchema").Build()
+	targetSchema := NewSchemaBuilder("Target").Build()
 
-	assert.Panics(t, func() {
-		schema.AddRef("target", targetSchema)
-	}, "should panic when adding ref to immutable schema")
+	// All schemas are now immutable, so AddRef should not be available
+	// The new way is to use Update() method
+	updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+		sb.AddRef("target", targetSchema)
+	})
+
+	// Verify the ref was added
+	ref, exists := updatedSchema.Ref("target")
+	assert.True(t, exists)
+	assert.Equal(t, "target", ref.Name())
+	assert.Equal(t, targetSchema, ref.TargetSchema())
 }
 
 func TestJSchema_AddRef_Duplicate(t *testing.T) {
-	schema := NewJSchema("TestSchema")
-	target1 := NewJSchema("Target1")
-	target2 := NewJSchema("Target2")
-
-	// Add first ref
-	schema.AddRef("target", target1)
+	target1 := NewSchemaBuilder("Target1").Build()
+	target2 := NewSchemaBuilder("Target2").Build()
+	schema := NewSchemaBuilder("TestSchema").
+		AddRef("target", target1).
+		Build()
 
 	// Add ref with same name (should overwrite)
-	ref2 := schema.AddRef("target", target2)
+	updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+		sb.AddRef("target", target2)
+	})
 
-	assert.Equal(t, "target", ref2.Name())
-	assert.Equal(t, target2, ref2.TargetSchema())
+	ref, exists := updatedSchema.Ref("target")
+	assert.True(t, exists)
+	assert.Equal(t, "target", ref.Name())
+	assert.Equal(t, target2, ref.TargetSchema())
 
 	// Should only have one ref
-	assert.Len(t, schema.Refs(), 1)
+	assert.Len(t, updatedSchema.Refs(), 1)
 }
 
 func TestJSchema_Ref(t *testing.T) {
-	schema := NewJSchema("TestSchema")
+	targetSchema := NewSchemaBuilder("Target").Build()
+	schema := NewSchemaBuilder("TestSchema").
+		AddRef("target", targetSchema).
+		Build()
 
 	// Test non-existent ref
 	ref, exists := schema.Ref("nonexistent")
 	assert.False(t, exists)
 	assert.Nil(t, ref)
 
-	// Add ref and test retrieval
-	targetSchema := NewJSchema("Target")
-	addedRef := schema.AddRef("target", targetSchema)
+	// Test ref retrieval
 	retrievedRef, exists := schema.Ref("target")
-
 	assert.True(t, exists)
-	assert.Equal(t, addedRef, retrievedRef)
+	assert.Equal(t, "target", retrievedRef.Name())
+	assert.Equal(t, targetSchema, retrievedRef.TargetSchema())
 }
 
 func TestJSchema_AddEdge(t *testing.T) {
-	userSchema := NewJSchema("User")
-	orderSchema := NewJSchema("Order")
+	userSchema := NewSchemaBuilder("User").Build()
+	orderSchema := NewSchemaBuilder("Order").Build()
 
 	edge := NewJEdge("user_orders", userSchema, orderSchema, EdgeOneToMany)
 
-	// Add edge
-	result := userSchema.AddEdge(edge)
-
-	// Should return self for chaining
-	assert.Equal(t, userSchema, result)
+	// Add edge using Update method
+	updatedSchema := userSchema.Update(func(sb *SchemaBuilder) {
+		sb.AddEdge(edge)
+	})
 
 	// Check that edge was added
-	edges := userSchema.Edges()
+	edges := updatedSchema.Edges()
 	assert.Len(t, edges, 1)
 	assert.Equal(t, edge, edges[0])
 }
 
 func TestJSchema_AddEdge_Immutable(t *testing.T) {
-	schema := NewImmutableJSchema("TestSchema")
-	targetSchema := NewJSchema("Target")
+	schema := NewSchemaBuilder("TestSchema").Build()
+	targetSchema := NewSchemaBuilder("Target").Build()
 	edge := NewJEdge("test_edge", schema, targetSchema, EdgeOneToOne)
 
-	assert.Panics(t, func() {
-		schema.AddEdge(edge)
-	}, "should panic when adding edge to immutable schema")
+	// All schemas are now immutable, so AddEdge should not be available
+	// The new way is to use Update() method
+	updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+		sb.AddEdge(edge)
+	})
+
+	// Verify the edge was added
+	edges := updatedSchema.Edges()
+	assert.Len(t, edges, 1)
+	assert.Equal(t, edge, edges[0])
 }
 
 func TestJSchema_AddEdge_Multiple(t *testing.T) {
-	userSchema := NewJSchema("User")
-	orderSchema := NewJSchema("Order")
-	productSchema := NewJSchema("Product")
+	userSchema := NewSchemaBuilder("User").Build()
+	orderSchema := NewSchemaBuilder("Order").Build()
+	productSchema := NewSchemaBuilder("Product").Build()
 
 	// Add multiple edges
 	edge1 := NewJEdge("user_orders", userSchema, orderSchema, EdgeOneToMany)
 	edge2 := NewJEdge("user_products", userSchema, productSchema, EdgeManyToMany)
 
-	userSchema.AddEdge(edge1).AddEdge(edge2)
+	updatedSchema := userSchema.Update(func(sb *SchemaBuilder) {
+		sb.AddEdge(edge1)
+		sb.AddEdge(edge2)
+	})
 
-	edges := userSchema.Edges()
+	edges := updatedSchema.Edges()
 	assert.Len(t, edges, 2)
 	assert.Contains(t, edges, edge1)
 	assert.Contains(t, edges, edge2)
 }
 
 func TestJSchema_SetIDField(t *testing.T) {
-	schema := NewJSchema("TestSchema")
+	schema := NewSchemaBuilder("TestSchema").
+		AddField("name", JString, "default").
+		AddField("age", JInt, 0).
+		Build()
 
-	// Add fields
-	nameField := schema.AddField("name", JString, "default")
-	ageField := schema.AddField("age", JInt, 0)
+	// ID field should be automatically created
+	idField := schema.GetIDField()
+	assert.Equal(t, "id", idField.Name())
+	assert.True(t, idField.IsRequired())
+	assert.True(t, idField.IsUnique())
 
-	// Initially, first field should be ID field
-	assert.Equal(t, nameField, schema.GetIDField())
-
-	// Set different field as ID
-	result := schema.SetIDField(ageField)
-
-	// Should return self for chaining
-	assert.Equal(t, schema, result)
+	// Set different field as ID using Update
+	updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+		sb.SetIDField("name")
+	})
 
 	// Check that ID field was changed
-	assert.Equal(t, ageField, schema.GetIDField())
+	newIDField := updatedSchema.GetIDField()
+	assert.Equal(t, "name", newIDField.Name())
 }
 
 func TestJSchema_SetIDField_Immutable(t *testing.T) {
-	// Create mutable schema first, then make it immutable
-	schema := NewJSchema("TestSchema")
-	field := schema.AddField("name", JString, "default")
-	schema.Freeze() // Make it immutable
+	// All schemas are now immutable by default
+	schema := NewSchemaBuilder("TestSchema").
+		AddField("name", JString, "default").
+		Build()
 
-	assert.Panics(t, func() {
-		schema.SetIDField(field)
-	}, "should panic when setting ID field on immutable schema")
+	// The new way is to use Update() method
+	updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+		sb.SetIDField("name")
+	})
+
+	// Verify the ID field was changed
+	newIDField := updatedSchema.GetIDField()
+	assert.Equal(t, "name", newIDField.Name())
 }
 
 func TestJSchema_SetIDField_NonExistent(t *testing.T) {
-	schema := NewJSchema("TestSchema")
-	otherSchema := NewJSchema("Other")
-	field := otherSchema.AddField("name", JString, "default")
+	schema := NewSchemaBuilder("TestSchema").
+		AddField("name", JString, "default").
+		Build()
 
-	// This should work but the field won't be in this schema
-	result := schema.SetIDField(field)
-	assert.Equal(t, schema, result)
-	assert.Equal(t, field, schema.GetIDField())
+	// Set ID field to an existing field in the schema
+	updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+		sb.SetIDField("name")
+	})
+
+	// Verify the ID field was set
+	newIDField := updatedSchema.GetIDField()
+	assert.Equal(t, "name", newIDField.Name())
 }
 
 func TestJSchema_AddValidation(t *testing.T) {
-	schema := NewJSchema("TestSchema")
-
 	// Add validation function
 	validationFunc := func(ctx context.Context, rec JRecord) error {
 		return nil
 	}
 
-	schema.AddValidation(validationFunc)
+	schema := NewSchemaBuilder("TestSchema").
+		AddValidation(validationFunc).
+		Build()
 
 	validations := schema.Validations()
 	assert.Len(t, validations, 1)
@@ -297,26 +351,33 @@ func TestJSchema_AddValidation(t *testing.T) {
 }
 
 func TestJSchema_AddValidation_Immutable(t *testing.T) {
-	schema := NewImmutableJSchema("TestSchema")
+	schema := NewSchemaBuilder("TestSchema").Build()
 
 	validationFunc := func(ctx context.Context, rec JRecord) error {
 		return nil
 	}
 
-	assert.Panics(t, func() {
-		schema.AddValidation(validationFunc)
-	}, "should panic when adding validation to immutable schema")
+	// All schemas are now immutable, so AddValidation should not be available
+	// The new way is to use Update() method
+	updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+		sb.AddValidation(validationFunc)
+	})
+
+	// Verify the validation was added
+	validations := updatedSchema.Validations()
+	assert.Len(t, validations, 1)
+	assert.NotNil(t, validations[0])
 }
 
 func TestJSchema_AddValidation_Multiple(t *testing.T) {
-	schema := NewJSchema("TestSchema")
-
 	// Add multiple validations
 	validation1 := func(ctx context.Context, rec JRecord) error { return nil }
 	validation2 := func(ctx context.Context, rec JRecord) error { return nil }
 
-	schema.AddValidation(validation1)
-	schema.AddValidation(validation2)
+	schema := NewSchemaBuilder("TestSchema").
+		AddValidation(validation1).
+		AddValidation(validation2).
+		Build()
 
 	validations := schema.Validations()
 	assert.Len(t, validations, 2)
@@ -326,13 +387,10 @@ func TestJSchema_AddValidation_Multiple(t *testing.T) {
 }
 
 func TestJSchema_Validate(t *testing.T) {
-	schema := NewJSchema("TestSchema")
-
-	// Add required field
-	schema.AddField("name", JString, "default").SetRequired(true)
-
-	// Add optional field
-	schema.AddField("age", JInt, 0)
+	schema := NewSchemaBuilder("TestSchema").
+		AddRequiredField("name", JString, "default").
+		AddField("age", JInt, 0).
+		Build()
 
 	tests := []struct {
 		name      string
@@ -343,6 +401,7 @@ func TestJSchema_Validate(t *testing.T) {
 		{
 			name: "valid record with required field",
 			record: NewJRecordFromMap(map[string]any{
+				"id":   "user123",
 				"name": "John",
 				"age":  25,
 			}),
@@ -351,6 +410,7 @@ func TestJSchema_Validate(t *testing.T) {
 		{
 			name: "valid record with only required field",
 			record: NewJRecordFromMap(map[string]any{
+				"id":   "user456",
 				"name": "Jane",
 			}),
 			wantError: false,
@@ -358,6 +418,7 @@ func TestJSchema_Validate(t *testing.T) {
 		{
 			name: "invalid record missing required field",
 			record: NewJRecordFromMap(map[string]any{
+				"id":  "user789",
 				"age": 25,
 			}),
 			wantError: true,
@@ -367,7 +428,7 @@ func TestJSchema_Validate(t *testing.T) {
 			name:      "empty record",
 			record:    NewJRecord(),
 			wantError: true,
-			errorMsg:  "required field 'name' is missing",
+			errorMsg:  "required field 'id' is missing",
 		},
 	}
 
@@ -387,20 +448,18 @@ func TestJSchema_Validate(t *testing.T) {
 }
 
 func TestJSchema_Validate_WithFieldValidation(t *testing.T) {
-	schema := NewJSchema("TestSchema")
-
-	// Add field with validation
-	field := schema.AddField("age", JInt, 0)
-	field.SetValidation(func(ctx context.Context, rec JRecord) error {
-		age := rec.Get("age")
-		if age == nil {
-			return nil // Let required validation handle this
-		}
-		if ageInt, ok := age.(int); ok && ageInt < 0 {
-			return assert.AnError
-		}
-		return nil
-	})
+	schema := NewSchemaBuilder("TestSchema").
+		AddFieldWithValidation("age", JInt, 0, func(ctx context.Context, rec JRecord) error {
+			age := rec.Get("age")
+			if age == nil {
+				return nil // Let required validation handle this
+			}
+			if ageInt, ok := age.(int); ok && ageInt < 0 {
+				return assert.AnError
+			}
+			return nil
+		}).
+		Build()
 
 	tests := []struct {
 		name      string
@@ -410,6 +469,7 @@ func TestJSchema_Validate_WithFieldValidation(t *testing.T) {
 		{
 			name: "valid age",
 			record: NewJRecordFromMap(map[string]any{
+				"id":  "user123",
 				"age": 25,
 			}),
 			wantError: false,
@@ -417,6 +477,7 @@ func TestJSchema_Validate_WithFieldValidation(t *testing.T) {
 		{
 			name: "zero age",
 			record: NewJRecordFromMap(map[string]any{
+				"id":  "user456",
 				"age": 0,
 			}),
 			wantError: false,
@@ -424,6 +485,7 @@ func TestJSchema_Validate_WithFieldValidation(t *testing.T) {
 		{
 			name: "negative age",
 			record: NewJRecordFromMap(map[string]any{
+				"id":  "user789",
 				"age": -5,
 			}),
 			wantError: true,
@@ -446,22 +508,21 @@ func TestJSchema_Validate_WithFieldValidation(t *testing.T) {
 }
 
 func TestJSchema_Validate_WithSchemaValidation(t *testing.T) {
-	schema := NewJSchema("TestSchema")
+	schema := NewSchemaBuilder("TestSchema").
+		AddValidation(func(ctx context.Context, rec JRecord) error {
+			name := rec.Get("name")
+			age := rec.Get("age")
 
-	// Add schema-level validation
-	schema.AddValidation(func(ctx context.Context, rec JRecord) error {
-		name := rec.Get("name")
-		age := rec.Get("age")
-
-		if name != nil && age != nil {
-			if nameStr, ok := name.(string); ok && nameStr == "admin" {
-				if ageInt, ok := age.(int); ok && ageInt < 18 {
-					return assert.AnError
+			if name != nil && age != nil {
+				if nameStr, ok := name.(string); ok && nameStr == "admin" {
+					if ageInt, ok := age.(int); ok && ageInt < 18 {
+						return assert.AnError
+					}
 				}
 			}
-		}
-		return nil
-	})
+			return nil
+		}).
+		Build()
 
 	tests := []struct {
 		name      string
@@ -471,6 +532,7 @@ func TestJSchema_Validate_WithSchemaValidation(t *testing.T) {
 		{
 			name: "valid admin",
 			record: NewJRecordFromMap(map[string]any{
+				"id":   "admin123",
 				"name": "admin",
 				"age":  25,
 			}),
@@ -479,6 +541,7 @@ func TestJSchema_Validate_WithSchemaValidation(t *testing.T) {
 		{
 			name: "invalid admin age",
 			record: NewJRecordFromMap(map[string]any{
+				"id":   "admin456",
 				"name": "admin",
 				"age":  16,
 			}),
@@ -487,6 +550,7 @@ func TestJSchema_Validate_WithSchemaValidation(t *testing.T) {
 		{
 			name: "non-admin with low age",
 			record: NewJRecordFromMap(map[string]any{
+				"id":   "user789",
 				"name": "user",
 				"age":  16,
 			}),
@@ -511,31 +575,28 @@ func TestJSchema_Validate_WithSchemaValidation(t *testing.T) {
 
 func TestJSchema_Clone(t *testing.T) {
 	// Create original schema
-	original := NewJSchema("Original")
+	targetSchema := NewSchemaBuilder("Target").Build()
+	original := NewSchemaBuilder("Original").
+		AddRequiredField("name", JString, "default").
+		AddUniqueField("age", JInt, 0).
+		AddValidation(func(ctx context.Context, rec JRecord) error {
+			return nil
+		}).
+		AddRef("target", targetSchema).
+		Build()
 
-	// Add fields
-	nameField := original.AddField("name", JString, "default").SetRequired(true)
-	original.AddField("age", JInt, 0).SetUnique(true)
-
-	// Add validation
-	original.AddValidation(func(ctx context.Context, rec JRecord) error {
-		return nil
-	})
-
-	// Add ref
-	targetSchema := NewJSchema("Target")
-	original.AddRef("target", targetSchema)
-
-	// Add edge
+	// Add edge using Update
 	edge := NewJEdge("test_edge", original, targetSchema, EdgeOneToOne)
-	original.AddEdge(edge)
+	original = original.Update(func(sb *SchemaBuilder) {
+		sb.AddEdge(edge)
+	})
 
 	// Clone schema
 	cloned := original.Clone()
 
 	// Test basic properties
 	assert.Equal(t, original.Name(), cloned.Name())
-	assert.False(t, cloned.IsImmutable()) // Clone should be mutable
+	assert.True(t, cloned.IsImmutable()) // All schemas are now immutable
 
 	// Test fields
 	originalFields := original.Fields()
@@ -557,12 +618,12 @@ func TestJSchema_Clone(t *testing.T) {
 		assert.Equal(t, originalField.DefaultValue(), clonedField.DefaultValue())
 		assert.Equal(t, originalField.IsRequired(), clonedField.IsRequired())
 		assert.Equal(t, originalField.IsUnique(), clonedField.IsUnique())
-		assert.False(t, clonedField.IsImmutable()) // Cloned fields should be mutable
+		assert.True(t, clonedField.IsImmutable()) // All fields are now immutable
 	}
 
 	// Test ID field
 	assert.NotNil(t, cloned.GetIDField())
-	assert.Equal(t, nameField.Name(), cloned.GetIDField().Name())
+	assert.Equal(t, "id", cloned.GetIDField().Name()) // Automatic ID field
 
 	// Test refs
 	originalRefs := original.Refs()
@@ -580,57 +641,63 @@ func TestJSchema_Clone(t *testing.T) {
 	assert.Len(t, clonedValidations, len(originalValidations))
 
 	// Test that modifications to clone don't affect original
-	cloned.AddField("new_field", JString, "new")
-	assert.Len(t, original.Fields(), 2)
-	assert.Len(t, cloned.Fields(), 3)
+	// Since all schemas are now immutable, we use Update method
+	updatedCloned := cloned.Update(func(sb *SchemaBuilder) {
+		sb.AddField("new_field", JString, "new")
+	})
+	assert.Len(t, original.Fields(), 3)      // id, name, age
+	assert.Len(t, updatedCloned.Fields(), 4) // id, name, age, new_field
 }
 
 func TestJSchema_Clone_Immutable(t *testing.T) {
-	// Create mutable schema first, then make it immutable
-	original := NewJSchema("Original")
-	original.AddField("name", JString, "default")
-	original.Freeze() // Make it immutable
+	// All schemas are now immutable by default
+	original := NewSchemaBuilder("Original").
+		AddField("name", JString, "default").
+		Build()
 
-	// Clone should be mutable
+	// Clone should also be immutable
 	cloned := original.Clone()
-	assert.False(t, cloned.IsImmutable())
+	assert.True(t, cloned.IsImmutable())
 
-	// Should be able to modify clone
-	assert.NotPanics(t, func() {
-		cloned.AddField("age", JInt, 0)
+	// Should be able to modify clone using Update method
+	updatedCloned := cloned.Update(func(sb *SchemaBuilder) {
+		sb.AddField("age", JInt, 0)
 	})
+	assert.Len(t, updatedCloned.Fields(), 3) // id, name, age
 }
 
 func TestJSchema_Freeze(t *testing.T) {
-	schema := NewJSchema("TestSchema")
+	schema := NewSchemaBuilder("TestSchema").
+		AddField("name", JString, "default").
+		Build()
 
-	// Add field
-	field := schema.AddField("name", JString, "default")
-
-	// Freeze schema
-	result := schema.Freeze()
-
-	// Should return self for chaining
-	assert.Equal(t, schema, result)
-
-	// Schema should be immutable
+	// All schemas are now immutable by default
 	assert.True(t, schema.IsImmutable())
 
-	// Field should also be immutable
+	// Get field and verify it's immutable
+	field, exists := schema.Field("name")
+	assert.True(t, exists)
 	assert.True(t, field.IsImmutable())
 
-	// Should panic when trying to modify
-	assert.Panics(t, func() {
-		schema.AddField("age", JInt, 0)
-	})
+	// Freeze should return the same schema (already immutable)
+	result := schema.Freeze()
+	assert.Equal(t, schema, result)
 
-	assert.Panics(t, func() {
-		field.SetRequired(true)
+	// Should not panic when trying to modify using Update method
+	updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+		sb.AddField("age", JInt, 0)
 	})
+	assert.Len(t, updatedSchema.Fields(), 3) // id, name, age
+
+	// Field modifications should also use Update method
+	updatedField := field.Update(func(fb *FieldBuilder) {
+		fb.Required()
+	})
+	assert.True(t, updatedField.IsRequired())
 }
 
 func TestJSchema_Freeze_AlreadyImmutable(t *testing.T) {
-	schema := NewImmutableJSchema("TestSchema")
+	schema := NewSchemaBuilder("TestSchema").Build()
 
 	// Freezing already immutable schema should work
 	result := schema.Freeze()
@@ -639,16 +706,12 @@ func TestJSchema_Freeze_AlreadyImmutable(t *testing.T) {
 }
 
 func TestJSchema_String(t *testing.T) {
-	schema := NewJSchema("User")
-
-	// Add fields
-	schema.AddField("id", JString, "").SetRequired(true).SetUnique(true)
-	schema.AddField("name", JString, "").SetRequired(true)
-	schema.AddField("age", JInt, 0)
-
-	// Add ref
-	targetSchema := NewJSchema("Profile")
-	schema.AddRef("profile", targetSchema)
+	targetSchema := NewSchemaBuilder("Profile").Build()
+	schema := NewSchemaBuilder("User").
+		AddRequiredField("name", JString, "").
+		AddField("age", JInt, 0).
+		AddRef("profile", targetSchema).
+		Build()
 
 	// Get string representation
 	str := schema.String()
@@ -656,7 +719,7 @@ func TestJSchema_String(t *testing.T) {
 	// Check that it contains expected information
 	assert.Contains(t, str, "Schema: User")
 	assert.Contains(t, str, "Fields:")
-	assert.Contains(t, str, "id: string (required) (unique)")
+	assert.Contains(t, str, "id: string (required) (unique)") // Automatic ID field
 	assert.Contains(t, str, "name: string (required)")
 	assert.Contains(t, str, "age: int")
 	assert.Contains(t, str, "References:")
@@ -664,7 +727,7 @@ func TestJSchema_String(t *testing.T) {
 }
 
 func TestJSchema_String_Empty(t *testing.T) {
-	schema := NewJSchema("Empty")
+	schema := NewSchemaBuilder("Empty").Build()
 	str := schema.String()
 
 	assert.Contains(t, str, "Schema: Empty")
@@ -675,64 +738,76 @@ func TestJSchema_String_Empty(t *testing.T) {
 
 func TestJSchema_EdgeCases(t *testing.T) {
 	t.Run("empty schema name", func(t *testing.T) {
-		schema := NewJSchema("")
+		schema := NewSchemaBuilder("").Build()
 		assert.Equal(t, "", schema.Name())
 	})
 
 	t.Run("schema with only edges", func(t *testing.T) {
-		schema := NewJSchema("EdgeOnly")
-		targetSchema := NewJSchema("Target")
+		schema := NewSchemaBuilder("EdgeOnly").Build()
+		targetSchema := NewSchemaBuilder("Target").Build()
 		edge := NewJEdge("test_edge", schema, targetSchema, EdgeOneToOne)
-		schema.AddEdge(edge)
+		schema = schema.Update(func(sb *SchemaBuilder) {
+			sb.AddEdge(edge)
+		})
 
-		assert.Len(t, schema.Fields(), 0)
+		assert.Len(t, schema.Fields(), 1) // Automatic ID field
 		assert.Len(t, schema.Edges(), 1)
-		assert.Nil(t, schema.GetIDField())
+		assert.NotNil(t, schema.GetIDField()) // Automatic ID field
 	})
 
 	t.Run("schema with only refs", func(t *testing.T) {
-		schema := NewJSchema("RefOnly")
-		targetSchema := NewJSchema("Target")
-		schema.AddRef("target", targetSchema)
+		targetSchema := NewSchemaBuilder("Target").Build()
+		schema := NewSchemaBuilder("RefOnly").
+			AddRef("target", targetSchema).
+			Build()
 
-		assert.Len(t, schema.Fields(), 0)
+		assert.Len(t, schema.Fields(), 1) // Automatic ID field
 		assert.Len(t, schema.Refs(), 1)
-		assert.Nil(t, schema.GetIDField())
+		assert.NotNil(t, schema.GetIDField()) // Automatic ID field
 	})
 
 	t.Run("schema with only validations", func(t *testing.T) {
-		schema := NewJSchema("ValidationOnly")
-		schema.AddValidation(func(ctx context.Context, rec JRecord) error {
-			return nil
-		})
+		schema := NewSchemaBuilder("ValidationOnly").
+			AddValidation(func(ctx context.Context, rec JRecord) error {
+				return nil
+			}).
+			Build()
 
-		assert.Len(t, schema.Fields(), 0)
+		assert.Len(t, schema.Fields(), 1) // Automatic ID field
 		assert.Len(t, schema.Validations(), 1)
 	})
 
 	t.Run("set nil ID field", func(t *testing.T) {
-		schema := NewJSchema("Test")
-		schema.AddField("name", JString, "default")
+		schema := NewSchemaBuilder("Test").
+			AddField("name", JString, "default").
+			Build()
 
-		// Set ID field to nil should panic or handle gracefully
-		assert.Panics(t, func() {
-			schema.SetIDField(nil)
-		}, "should panic when setting nil ID field")
+		// Set ID field to empty string should work
+		updatedSchema := schema.Update(func(sb *SchemaBuilder) {
+			sb.SetIDField("") // This should work but may not be useful
+		})
+
+		// The schema should still have the automatic ID field
+		assert.NotNil(t, updatedSchema.GetIDField())
 	})
 }
 
 func TestJSchema_ConcurrentAccess(t *testing.T) {
-	schema := NewJSchema("Concurrent")
+	schema := NewSchemaBuilder("Concurrent").Build()
 
 	// Test concurrent field additions
 	done := make(chan bool, 10)
 
+	// Since schemas are now immutable, we need to test concurrent access differently
+	// We'll test concurrent reads instead of concurrent modifications
 	for i := 0; i < 10; i++ {
 		go func(index int) {
 			defer func() { done <- true }()
 
-			fieldName := fmt.Sprintf("field_%d", index)
-			schema.AddField(fieldName, JString, "default")
+			// Test concurrent reads
+			_ = schema.Name()
+			_ = schema.Fields()
+			_ = schema.IsImmutable()
 		}(i)
 	}
 
@@ -741,25 +816,25 @@ func TestJSchema_ConcurrentAccess(t *testing.T) {
 		<-done
 	}
 
-	// Should have 10 fields
-	assert.Len(t, schema.Fields(), 10)
+	// Should have 1 field (automatic ID field)
+	assert.Len(t, schema.Fields(), 1)
 }
 
 func TestJSchema_Validation_ContextCancellation(t *testing.T) {
-	schema := NewJSchema("TestSchema")
-	schema.AddField("name", JString, "default").SetRequired(true)
-
-	// Add validation that respects context
-	schema.AddValidation(func(ctx context.Context, rec JRecord) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			return nil
-		}
-	})
+	schema := NewSchemaBuilder("TestSchema").
+		AddRequiredField("name", JString, "default").
+		AddValidation(func(ctx context.Context, rec JRecord) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				return nil
+			}
+		}).
+		Build()
 
 	record := NewJRecordFromMap(map[string]any{
+		"id":   "test123",
 		"name": "test",
 	})
 
@@ -773,20 +848,20 @@ func TestJSchema_Validation_ContextCancellation(t *testing.T) {
 }
 
 func TestJSchema_Validation_ContextTimeout(t *testing.T) {
-	schema := NewJSchema("TestSchema")
-	schema.AddField("name", JString, "default").SetRequired(true)
-
-	// Add validation that respects context
-	schema.AddValidation(func(ctx context.Context, rec JRecord) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			return nil
-		}
-	})
+	schema := NewSchemaBuilder("TestSchema").
+		AddRequiredField("name", JString, "default").
+		AddValidation(func(ctx context.Context, rec JRecord) error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				return nil
+			}
+		}).
+		Build()
 
 	record := NewJRecordFromMap(map[string]any{
+		"id":   "test456",
 		"name": "test",
 	})
 
@@ -801,55 +876,53 @@ func TestJSchema_Validation_ContextTimeout(t *testing.T) {
 
 func TestJSchema_ComplexScenario(t *testing.T) {
 	// Create a complex schema with all features
-	userSchema := NewJSchema("User")
-
-	// Add fields with various properties
-	idField := userSchema.AddField("id", JString, "").SetRequired(true).SetUnique(true)
-	userSchema.AddField("name", JString, "").SetRequired(true)
-	userSchema.AddField("email", JString, "").SetRequired(true).SetUnique(true)
-	userSchema.AddField("age", JInt, 0)
-	userSchema.AddField("active", JBool, true)
-	userSchema.AddField("metadata", JObject, map[string]any{})
-	userSchema.AddField("tags", JArray, []string{})
-
-	// Set ID field
-	userSchema.SetIDField(idField)
-
-	// Add validations
-	userSchema.AddValidation(func(ctx context.Context, rec JRecord) error {
-		age := rec.Get("age")
-		if age != nil {
-			if ageInt, ok := age.(int); ok && ageInt < 0 {
-				return assert.AnError
+	userSchema := NewSchemaBuilder("User").
+		AddRequiredField("name", JString, "").
+		AddRequiredUniqueField("email", JString, "").
+		AddField("age", JInt, 0).
+		AddField("active", JBool, true).
+		AddField("metadata", JObject, map[string]any{}).
+		AddField("tags", JArray, []string{}).
+		AddValidation(func(ctx context.Context, rec JRecord) error {
+			age := rec.Get("age")
+			if age != nil {
+				if ageInt, ok := age.(int); ok && ageInt < 0 {
+					return assert.AnError
+				}
 			}
-		}
-		return nil
-	})
+			return nil
+		}).
+		Build()
 
 	// Create related schemas
-	profileSchema := NewJSchema("Profile")
-	profileSchema.AddField("bio", JString, "")
+	profileSchema := NewSchemaBuilder("Profile").
+		AddField("bio", JString, "").
+		Build()
 
-	orderSchema := NewJSchema("Order")
-	orderSchema.AddField("total", JFloat64, 0.0)
+	orderSchema := NewSchemaBuilder("Order").
+		AddField("total", JFloat64, 0.0).
+		Build()
 
-	// Add references
-	userSchema.AddRef("profile", profileSchema)
-	userSchema.AddRef("orders", orderSchema)
+	// Add references and edges using Update method
+	userSchema = userSchema.Update(func(sb *SchemaBuilder) {
+		sb.AddRef("profile", profileSchema)
+		sb.AddRef("orders", orderSchema)
 
-	// Add edges
-	userOrderEdge := NewJEdge("user_orders", userSchema, orderSchema, EdgeOneToMany)
-	userProfileEdge := NewJEdge("user_profile", userSchema, profileSchema, EdgeOneToOne)
-	userSchema.AddEdge(userOrderEdge).AddEdge(userProfileEdge)
+		// Add edges
+		userOrderEdge := NewJEdge("user_orders", userSchema, orderSchema, EdgeOneToMany)
+		userProfileEdge := NewJEdge("user_profile", userSchema, profileSchema, EdgeOneToOne)
+		sb.AddEdge(userOrderEdge)
+		sb.AddEdge(userProfileEdge)
+	})
 
 	// Test the complete schema
 	assert.Equal(t, "User", userSchema.Name())
-	assert.Len(t, userSchema.Fields(), 7)
+	assert.Len(t, userSchema.Fields(), 7) // id, name, email, age, active, metadata, tags
 	assert.Len(t, userSchema.Refs(), 2)
 	assert.Len(t, userSchema.Edges(), 2)
 	assert.Len(t, userSchema.Validations(), 1)
-	assert.Equal(t, idField, userSchema.GetIDField())
-	assert.False(t, userSchema.IsImmutable())
+	assert.Equal(t, "id", userSchema.GetIDField().Name()) // Automatic ID field
+	assert.True(t, userSchema.IsImmutable())              // All schemas are now immutable
 
 	// Test validation with valid record
 	validRecord := NewJRecordFromMap(map[string]any{
@@ -881,11 +954,11 @@ func TestJSchema_ComplexScenario(t *testing.T) {
 	// Test cloning
 	clonedSchema := userSchema.Clone()
 	assert.Equal(t, userSchema.Name(), clonedSchema.Name())
-	assert.Len(t, clonedSchema.Fields(), 7)
+	assert.Len(t, clonedSchema.Fields(), 7) // id, name, email, age, active, metadata, tags
 	assert.Len(t, clonedSchema.Refs(), 2)
 	assert.Len(t, clonedSchema.Edges(), 2)
 	assert.Len(t, clonedSchema.Validations(), 1)
-	assert.False(t, clonedSchema.IsImmutable())
+	assert.True(t, clonedSchema.IsImmutable()) // All schemas are now immutable
 
 	// Test freezing
 	frozenSchema := userSchema.Freeze()

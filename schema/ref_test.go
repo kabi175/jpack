@@ -109,9 +109,9 @@ func TestJRef_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("reference to schema with fields", func(t *testing.T) {
-		targetSchema := NewJSchema("Target")
-		targetSchema.AddField("id", JString, "").SetRequired(true)
-		targetSchema.AddField("name", JString, "").SetRequired(true)
+		targetSchema := NewSchemaBuilder("Target").
+			AddRequiredField("name", JString, "").
+			Build()
 
 		ref := NewJRef("target", targetSchema, false)
 
@@ -119,18 +119,17 @@ func TestJRef_EdgeCases(t *testing.T) {
 		assert.Equal(t, targetSchema, ref.TargetSchema())
 		assert.False(t, ref.IsArray())
 
-		// Verify target schema has fields
-		assert.Len(t, targetSchema.Fields(), 2)
+		// Verify target schema has fields (including automatic ID field)
+		assert.Len(t, targetSchema.Fields(), 2) // id, name
 	})
 
 	t.Run("reference to schema with refs", func(t *testing.T) {
-		userSchema := NewJSchema("User")
-		profileSchema := NewJSchema("Profile")
-		orderSchema := NewJSchema("Order")
-
-		// User has profile and orders
-		userSchema.AddRef("profile", profileSchema)
-		userSchema.AddRef("orders", orderSchema)
+		profileSchema := NewSchemaBuilder("Profile").Build()
+		orderSchema := NewSchemaBuilder("Order").Build()
+		userSchema := NewSchemaBuilder("User").
+			AddRef("profile", profileSchema).
+			AddRef("orders", orderSchema).
+			Build()
 
 		// Reference to user schema
 		ref := NewJRef("user", userSchema, false)
@@ -144,12 +143,14 @@ func TestJRef_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("reference to schema with edges", func(t *testing.T) {
-		userSchema := NewJSchema("User")
-		orderSchema := NewJSchema("Order")
+		userSchema := NewSchemaBuilder("User").Build()
+		orderSchema := NewSchemaBuilder("Order").Build()
 
 		// Add edge
 		edge := NewJEdge("user_orders", userSchema, orderSchema, EdgeOneToMany)
-		userSchema.AddEdge(edge)
+		userSchema = userSchema.Update(func(sb *SchemaBuilder) {
+			sb.AddEdge(edge)
+		})
 
 		// Reference to user schema
 		ref := NewJRef("user", userSchema, false)
@@ -185,18 +186,14 @@ func TestJRef_ArrayVsSingle(t *testing.T) {
 
 func TestJRef_ComplexTargetSchema(t *testing.T) {
 	// Create a complex target schema
-	targetSchema := NewJSchema("ComplexTarget")
-
-	// Add fields
-	targetSchema.AddField("id", JString, "").SetRequired(true).SetUnique(true)
-	targetSchema.AddField("name", JString, "").SetRequired(true)
-	targetSchema.AddField("metadata", JObject, map[string]any{})
-	targetSchema.AddField("tags", JArray, []string{})
-
-	// Add validations
-	targetSchema.AddValidation(func(ctx context.Context, rec JRecord) error {
-		return nil
-	})
+	targetSchema := NewSchemaBuilder("ComplexTarget").
+		AddRequiredField("name", JString, "").
+		AddField("metadata", JObject, map[string]any{}).
+		AddField("tags", JArray, []string{}).
+		AddValidation(func(ctx context.Context, rec JRecord) error {
+			return nil
+		}).
+		Build()
 
 	// Create reference
 	ref := NewJRef("complex", targetSchema, true)
@@ -207,16 +204,16 @@ func TestJRef_ComplexTargetSchema(t *testing.T) {
 
 	// Verify target schema properties
 	assert.Equal(t, "ComplexTarget", targetSchema.Name())
-	assert.Len(t, targetSchema.Fields(), 4)
+	assert.Len(t, targetSchema.Fields(), 4) // id, name, metadata, tags
 	assert.Len(t, targetSchema.Validations(), 1)
-	assert.False(t, targetSchema.IsImmutable())
+	assert.True(t, targetSchema.IsImmutable()) // All schemas are now immutable
 }
 
 func TestJRef_ImmutableTargetSchema(t *testing.T) {
-	// Create mutable schema first, then make it immutable
-	targetSchema := NewJSchema("ImmutableTarget")
-	targetSchema.AddField("id", JString, "").SetRequired(true)
-	targetSchema.Freeze() // Make it immutable
+	// Create immutable schema directly
+	targetSchema := NewSchemaBuilder("ImmutableTarget").
+		AddRequiredField("name", JString, "").
+		Build()
 
 	// Create reference
 	ref := NewJRef("immutable", targetSchema, false)
@@ -230,7 +227,7 @@ func TestJRef_ImmutableTargetSchema(t *testing.T) {
 }
 
 func TestJRef_StringRepresentation(t *testing.T) {
-	targetSchema := NewJSchema("Target")
+	targetSchema := NewSchemaBuilder("Target").Build()
 
 	t.Run("single reference string", func(t *testing.T) {
 		ref := NewJRef("single", targetSchema, false)
@@ -344,11 +341,13 @@ func TestJRef_AllEdgeTypes(t *testing.T) {
 	for _, edgeType := range edgeTypes {
 		t.Run(string(edgeType), func(t *testing.T) {
 			// Create fresh schemas for each test
-			userSchema := NewJSchema("User")
-			orderSchema := NewJSchema("Order")
+			userSchema := NewSchemaBuilder("User").Build()
+			orderSchema := NewSchemaBuilder("Order").Build()
 
 			edge := NewJEdge("test_edge", userSchema, orderSchema, edgeType)
-			userSchema.AddEdge(edge)
+			userSchema = userSchema.Update(func(sb *SchemaBuilder) {
+				sb.AddEdge(edge)
+			})
 
 			// Create reference to schema with this edge
 			ref := NewJRef("user", userSchema, false)
@@ -366,19 +365,17 @@ func TestJRef_AllEdgeTypes(t *testing.T) {
 }
 
 func TestJRef_Validation(t *testing.T) {
-	targetSchema := NewJSchema("ValidatedTarget")
-
-	// Add field with validation
-	field := targetSchema.AddField("email", JString, "")
-	field.SetValidation(func(ctx context.Context, rec JRecord) error {
-		email := rec.Get("email")
-		if email != nil {
-			if emailStr, ok := email.(string); ok && !strings.Contains(emailStr, "@") {
-				return assert.AnError
+	targetSchema := NewSchemaBuilder("ValidatedTarget").
+		AddFieldWithValidation("email", JString, "", func(ctx context.Context, rec JRecord) error {
+			email := rec.Get("email")
+			if email != nil {
+				if emailStr, ok := email.(string); ok && !strings.Contains(emailStr, "@") {
+					return assert.AnError
+				}
 			}
-		}
-		return nil
-	})
+			return nil
+		}).
+		Build()
 
 	// Create reference
 	ref := NewJRef("validated", targetSchema, false)
@@ -389,6 +386,15 @@ func TestJRef_Validation(t *testing.T) {
 
 	// Verify target schema has validation
 	fields := targetSchema.Fields()
-	assert.Len(t, fields, 1)
-	assert.NotNil(t, fields[0].Validation())
+	assert.Len(t, fields, 2) // id field + email field
+	// Find the email field (not the id field)
+	var emailField JField
+	for _, field := range fields {
+		if field.Name() == "email" {
+			emailField = field
+			break
+		}
+	}
+	assert.NotNil(t, emailField)
+	assert.NotNil(t, emailField.Validation())
 }

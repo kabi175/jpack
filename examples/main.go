@@ -22,7 +22,7 @@ func main() {
 		case "custom":
 			CustomConverterExample()
 		case "immutable":
-			RunImmutableExamples()
+			runImmutableSchemaExample()
 		case "lazy":
 			LazyRegistryExample()
 		case "concurrent":
@@ -52,7 +52,7 @@ func main() {
 
 	// Run immutable schema examples
 	fmt.Println("\n4. Immutable Schema Examples")
-	RunImmutableExamples()
+	runImmutableSchemaExample()
 
 	// Run lazy registry examples
 	fmt.Println("\n5. Lazy Registry Example")

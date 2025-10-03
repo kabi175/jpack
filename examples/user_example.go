@@ -36,39 +36,46 @@ func UserExample() {
 	}
 	defer client.Close(context.Background())
 
-	// Create user schema
-	userSchema := schema.NewJSchema("User")
-	userSchema.AddField("id", schema.JString, nil)
-	userSchema.AddField("name", schema.JString, nil)
-	userSchema.AddField("email", schema.JString, nil)
-	userSchema.AddField("age", schema.JInt, 18)
-	userSchema.AddField("created_at", schema.JTime, nil)
-	userSchema.AddField("updated_at", schema.JTime, nil)
+	// Create user schema using builder pattern (ID field is automatically created)
+	userSchema := schema.NewSchemaBuilder("User").
+		AddField("name", schema.JString, nil).
+		AddField("email", schema.JString, nil).
+		AddField("age", schema.JInt, 18).
+		AddField("created_at", schema.JTime, nil).
+		AddField("updated_at", schema.JTime, nil).
+		Build()
 
-	// Set ID field
-	idField, _ := userSchema.Field("id")
-	userSchema.SetIDField(idField)
+	// Update schema with field validations and schema-level validations
+	userSchema = userSchema.Update(func(sb *schema.SchemaBuilder) {
+		// Add schema-level validations
+		sb.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
+			return validation.ValidateMinLength("name", 2)(ctx, rec)
+		})
+		sb.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
+			return validation.ValidateMaxLength("name", 100)(ctx, rec)
+		})
+		sb.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
+			return validation.ValidateEmail("email")(ctx, rec)
+		})
+		sb.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
+			return validation.ValidateRange("age", 0, 150)(ctx, rec)
+		})
+	})
 
-	// Add field validations
+	// Update fields to be required/unique
 	nameField, _ := userSchema.Field("name")
-	nameField.SetRequired(true)
-	emailField, _ := userSchema.Field("email")
-	emailField.SetRequired(true).SetUnique(true)
-	ageField, _ := userSchema.Field("age")
-	ageField.SetRequired(true)
+	nameField = nameField.Update(func(fb *schema.FieldBuilder) {
+		fb.Required()
+	})
 
-	// Add schema-level validations
-	userSchema.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
-		return validation.ValidateMinLength("name", 2)(ctx, rec)
+	emailField, _ := userSchema.Field("email")
+	emailField = emailField.Update(func(fb *schema.FieldBuilder) {
+		fb.Required().Unique()
 	})
-	userSchema.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
-		return validation.ValidateMaxLength("name", 100)(ctx, rec)
-	})
-	userSchema.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
-		return validation.ValidateEmail("email")(ctx, rec)
-	})
-	userSchema.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
-		return validation.ValidateRange("age", 0, 150)(ctx, rec)
+
+	ageField, _ := userSchema.Field("age")
+	ageField = ageField.Update(func(fb *schema.FieldBuilder) {
+		fb.Required()
 	})
 
 	// Register schema
@@ -225,39 +232,46 @@ func ProductExample() {
 	}
 	defer client.Close(context.Background())
 
-	// Create product schema
-	productSchema := schema.NewJSchema("Product")
-	productSchema.AddField("id", schema.JString, nil)
-	productSchema.AddField("name", schema.JString, nil)
-	productSchema.AddField("description", schema.JString, nil)
-	productSchema.AddField("price", schema.JFloat64, 0.0)
-	productSchema.AddField("category", schema.JString, nil)
-	productSchema.AddField("tags", schema.JArray, nil)
-	productSchema.AddField("in_stock", schema.JBool, true)
-	productSchema.AddField("created_at", schema.JTime, nil)
-	productSchema.AddField("updated_at", schema.JTime, nil)
+	// Create product schema using builder pattern (ID field is automatically created)
+	productSchema := schema.NewSchemaBuilder("Product").
+		AddField("name", schema.JString, nil).
+		AddField("description", schema.JString, nil).
+		AddField("price", schema.JFloat64, 0.0).
+		AddField("category", schema.JString, nil).
+		AddField("tags", schema.JArray, nil).
+		AddField("in_stock", schema.JBool, true).
+		AddField("created_at", schema.JTime, nil).
+		AddField("updated_at", schema.JTime, nil).
+		Build()
 
-	// Set ID field
-	prodIdField, _ := productSchema.Field("id")
-	productSchema.SetIDField(prodIdField)
+	// Update product schema with validations
+	productSchema = productSchema.Update(func(sb *schema.SchemaBuilder) {
+		// Add schema-level validations
+		sb.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
+			return validation.ValidateMinLength("name", 3)(ctx, rec)
+		})
+		sb.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
+			return validation.ValidateMinValue("price", 0.0)(ctx, rec)
+		})
+		sb.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
+			return validation.ValidateFieldIn("category", []any{"electronics", "clothing", "books", "home"})(ctx, rec)
+		})
+	})
 
-	// Add field validations
+	// Update fields to be required
 	prodNameField, _ := productSchema.Field("name")
-	prodNameField.SetRequired(true)
-	prodPriceField, _ := productSchema.Field("price")
-	prodPriceField.SetRequired(true)
-	prodCategoryField, _ := productSchema.Field("category")
-	prodCategoryField.SetRequired(true)
+	prodNameField = prodNameField.Update(func(fb *schema.FieldBuilder) {
+		fb.Required()
+	})
 
-	// Add schema-level validations
-	productSchema.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
-		return validation.ValidateMinLength("name", 3)(ctx, rec)
+	prodPriceField, _ := productSchema.Field("price")
+	prodPriceField = prodPriceField.Update(func(fb *schema.FieldBuilder) {
+		fb.Required()
 	})
-	productSchema.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
-		return validation.ValidateMinValue("price", 0.0)(ctx, rec)
-	})
-	productSchema.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
-		return validation.ValidateFieldIn("category", []any{"electronics", "clothing", "books", "home"})(ctx, rec)
+
+	prodCategoryField, _ := productSchema.Field("category")
+	prodCategoryField = prodCategoryField.Update(func(fb *schema.FieldBuilder) {
+		fb.Required()
 	})
 
 	// Register schema
@@ -423,29 +437,36 @@ func CustomConverterExample() {
 		log.Fatal("Failed to register email converter:", err)
 	}
 
-	// Create order schema with custom types
-	orderSchema := schema.NewJSchema("Order")
-	orderSchema.AddField("id", schema.JString, nil)
-	orderSchema.AddField("customer_email", "email", nil)
-	orderSchema.AddField("total_amount", "money", nil)
-	orderSchema.AddField("status", schema.JString, "pending")
-	orderSchema.AddField("created_at", schema.JTime, nil)
+	// Create order schema with custom types using builder pattern (ID field is automatically created)
+	orderSchema := schema.NewSchemaBuilder("Order").
+		AddField("customer_email", "email", nil).
+		AddField("total_amount", "money", nil).
+		AddField("status", schema.JString, "pending").
+		AddField("created_at", schema.JTime, nil).
+		Build()
 
-	// Set ID field
-	orderIdField, _ := orderSchema.Field("id")
-	orderSchema.SetIDField(orderIdField)
+	// Update order schema with validations
+	orderSchema = orderSchema.Update(func(sb *schema.SchemaBuilder) {
+		// Add schema-level validations
+		sb.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
+			return validation.ValidateFieldIn("status", []any{"pending", "processing", "shipped", "delivered", "cancelled"})(ctx, rec)
+		})
+	})
 
-	// Add validations
+	// Update fields to be required
 	orderEmailField, _ := orderSchema.Field("customer_email")
-	orderEmailField.SetRequired(true)
-	orderAmountField, _ := orderSchema.Field("total_amount")
-	orderAmountField.SetRequired(true)
-	orderStatusField, _ := orderSchema.Field("status")
-	orderStatusField.SetRequired(true)
+	orderEmailField = orderEmailField.Update(func(fb *schema.FieldBuilder) {
+		fb.Required()
+	})
 
-	// Add schema-level validations
-	orderSchema.AddValidation(func(ctx context.Context, rec schema.JRecord) error {
-		return validation.ValidateFieldIn("status", []any{"pending", "processing", "shipped", "delivered", "cancelled"})(ctx, rec)
+	orderAmountField, _ := orderSchema.Field("total_amount")
+	orderAmountField = orderAmountField.Update(func(fb *schema.FieldBuilder) {
+		fb.Required()
+	})
+
+	orderStatusField, _ := orderSchema.Field("status")
+	orderStatusField = orderStatusField.Update(func(fb *schema.FieldBuilder) {
+		fb.Required()
 	})
 
 	// Create MongoDB client

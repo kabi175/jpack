@@ -1,6 +1,8 @@
 package schema
 
-// jField implements JField interface
+import "fmt"
+
+// jField implements JField interface (always immutable)
 type jField struct {
 	name         string
 	fieldType    JFieldType
@@ -8,10 +10,21 @@ type jField struct {
 	required     bool
 	unique       bool
 	validation   ValidationFunc
-	immutable    bool
 }
 
-// NewJField creates a new field
+// newJFieldFromBuilder creates a new immutable field from a builder
+func newJFieldFromBuilder(fb *FieldBuilder) JField {
+	return &jField{
+		name:         fb.name,
+		fieldType:    fb.fieldType,
+		defaultValue: fb.defaultValue,
+		required:     fb.required,
+		unique:       fb.unique,
+		validation:   fb.validation,
+	}
+}
+
+// NewJField creates a new immutable field
 func NewJField(name string, fieldType JFieldType, defaultValue any) JField {
 	return &jField{
 		name:         name,
@@ -19,7 +32,6 @@ func NewJField(name string, fieldType JFieldType, defaultValue any) JField {
 		defaultValue: defaultValue,
 		required:     false,
 		unique:       false,
-		immutable:    false,
 	}
 }
 
@@ -39,45 +51,81 @@ func (f *jField) IsRequired() bool {
 	return f.required
 }
 
-func (f *jField) SetRequired(required bool) JField {
-	if f.immutable {
-		panic("cannot modify immutable field")
-	}
-	f.required = required
-	return f
-}
-
 func (f *jField) IsUnique() bool {
 	return f.unique
-}
-
-func (f *jField) SetUnique(unique bool) JField {
-	if f.immutable {
-		panic("cannot modify immutable field")
-	}
-	f.unique = unique
-	return f
 }
 
 func (f *jField) Validation() ValidationFunc {
 	return f.validation
 }
 
-func (f *jField) SetValidation(fn ValidationFunc) JField {
-	if f.immutable {
-		panic("cannot modify immutable field")
+func (f *jField) String() string {
+	return fmt.Sprintf("%s:%s", f.name, f.fieldType)
+}
+
+// Update creates a new field with modifications applied via callback
+func (f *jField) Update(fn func(*FieldBuilder)) JField {
+	// Create a new builder with a copy of the current field state
+	builder := &FieldBuilder{
+		name:         f.name,
+		fieldType:    f.fieldType,
+		defaultValue: f.defaultValue,
+		required:     f.required,
+		unique:       f.unique,
+		validation:   f.validation,
 	}
-	f.validation = fn
-	return f
+
+	// Apply the modifications
+	fn(builder)
+
+	// Build and return the new immutable field
+	return builder.Build()
 }
 
-// IsImmutable returns whether the field is immutable
+// Legacy methods for backward compatibility
+
+// SetRequired creates a new field with the required flag set (for backward compatibility)
+func (f *jField) SetRequired(required bool) JField {
+	return &jField{
+		name:         f.name,
+		fieldType:    f.fieldType,
+		defaultValue: f.defaultValue,
+		required:     required,
+		unique:       f.unique,
+		validation:   f.validation,
+	}
+}
+
+// SetUnique creates a new field with the unique flag set (for backward compatibility)
+func (f *jField) SetUnique(unique bool) JField {
+	return &jField{
+		name:         f.name,
+		fieldType:    f.fieldType,
+		defaultValue: f.defaultValue,
+		required:     f.required,
+		unique:       unique,
+		validation:   f.validation,
+	}
+}
+
+// SetValidation creates a new field with the validation function set (for backward compatibility)
+func (f *jField) SetValidation(fn ValidationFunc) JField {
+	return &jField{
+		name:         f.name,
+		fieldType:    f.fieldType,
+		defaultValue: f.defaultValue,
+		required:     f.required,
+		unique:       f.unique,
+		validation:   fn,
+	}
+}
+
+// IsImmutable always returns true (for backward compatibility)
 func (f *jField) IsImmutable() bool {
-	return f.immutable
+	return true
 }
 
-// Freeze makes the field immutable
+// Freeze returns the field itself (for backward compatibility)
 func (f *jField) Freeze() JField {
-	f.immutable = true
 	return f
 }

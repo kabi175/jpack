@@ -8,7 +8,7 @@ import (
 	"github.com/kabi175/jpack/logger"
 )
 
-// jSchema implements JSchema interface
+// jSchema implements JSchema interface (always immutable)
 type jSchema struct {
 	name        string
 	fields      map[string]JField
@@ -16,31 +16,55 @@ type jSchema struct {
 	edges       []JEdge
 	validations []ValidationFunc
 	idField     JField
-	immutable   bool
 }
 
-// NewJSchema creates a new schema
-func NewJSchema(name string) JSchema {
-	return &jSchema{
-		name:        name,
+// newJSchemaFromBuilder creates a new immutable schema from a builder
+func newJSchemaFromBuilder(sb *SchemaBuilder) JSchema {
+	s := &jSchema{
+		name:        sb.name,
 		fields:      make(map[string]JField),
 		refs:        make(map[string]JRef),
-		edges:       make([]JEdge, 0),
-		validations: make([]ValidationFunc, 0),
-		immutable:   false,
+		edges:       make([]JEdge, len(sb.edges)),
+		validations: make([]ValidationFunc, len(sb.validations)),
 	}
-}
 
-// NewImmutableJSchema creates a new immutable schema
-func NewImmutableJSchema(name string) JSchema {
-	return &jSchema{
-		name:        name,
-		fields:      make(map[string]JField),
-		refs:        make(map[string]JRef),
-		edges:       make([]JEdge, 0),
-		validations: make([]ValidationFunc, 0),
-		immutable:   true,
+	// Build fields
+	for name, fb := range sb.fields {
+		field := newJFieldFromBuilder(&FieldBuilder{
+			name:         fb.name,
+			fieldType:    fb.fieldType,
+			defaultValue: fb.defaultValue,
+			required:     fb.required,
+			unique:       fb.unique,
+			validation:   fb.validation,
+		})
+		s.fields[name] = field
+
+		// Set ID field
+		if fb.name == sb.idFieldName {
+			s.idField = field
+		}
 	}
+
+	// Build refs
+	for name, ref := range sb.refs {
+		s.refs[name] = NewJRef(ref.name, ref.schema, ref.array)
+	}
+
+	// Copy edges
+	copy(s.edges, sb.edges)
+
+	// Copy validations
+	copy(s.validations, sb.validations)
+
+	logger.Schema.Debug().
+		Str("schema", s.name).
+		Int("fields_count", len(s.fields)).
+		Int("refs_count", len(s.refs)).
+		Int("edges_count", len(s.edges)).
+		Msg("created immutable schema")
+
+	return s
 }
 
 func (s *jSchema) Name() string {
@@ -60,56 +84,6 @@ func (s *jSchema) Field(name string) (JField, bool) {
 	return field, exists
 }
 
-func (s *jSchema) AddField(name string, fType JFieldType, defaultValue any) JField {
-	if s.immutable {
-		logger.Schema.Error().
-			Str("schema", s.name).
-			Str("field", name).
-			Msg("attempted to modify immutable schema")
-		panic("cannot modify immutable schema: use ReplaceSchema to create a new schema")
-	}
-
-	logger.Schema.Debug().
-		Str("schema", s.name).
-		Str("field", name).
-		Str("type", string(fType)).
-		Msg("adding field to schema")
-
-	field := NewJField(name, fType, defaultValue)
-	s.fields[name] = field
-
-	// If this is the first field and no ID field is set, make it the ID field
-	if s.idField == nil {
-		s.idField = field
-		logger.Schema.Debug().
-			Str("schema", s.name).
-			Str("field", name).
-			Msg("set as ID field")
-	}
-
-	return field
-}
-
-func (s *jSchema) AddRef(name string, schema JSchema) JRef {
-	if s.immutable {
-		logger.Schema.Error().
-			Str("schema", s.name).
-			Str("ref", name).
-			Msg("attempted to modify immutable schema")
-		panic("cannot modify immutable schema: use ReplaceSchema to create a new schema")
-	}
-
-	logger.Schema.Debug().
-		Str("schema", s.name).
-		Str("ref", name).
-		Str("target_schema", schema.Name()).
-		Msg("adding reference to schema")
-
-	ref := NewJRef(name, schema, false)
-	s.refs[name] = ref
-	return ref
-}
-
 func (s *jSchema) Refs() []JRef {
 	refs := make([]JRef, 0, len(s.refs))
 	for _, ref := range s.refs {
@@ -124,25 +98,10 @@ func (s *jSchema) Ref(name string) (JRef, bool) {
 }
 
 func (s *jSchema) Edges() []JEdge {
-	return s.edges
-}
-
-func (s *jSchema) AddEdge(edge JEdge) JSchema {
-	if s.immutable {
-		logger.Schema.Error().
-			Str("schema", s.name).
-			Str("edge", edge.Name()).
-			Msg("attempted to modify immutable schema")
-		panic("cannot modify immutable schema: use ReplaceSchema to create a new schema")
-	}
-
-	logger.Schema.Debug().
-		Str("schema", s.name).
-		Str("edge", edge.Name()).
-		Msg("adding edge to schema")
-
-	s.edges = append(s.edges, edge)
-	return s
+	// Return a copy to prevent external modification
+	edges := make([]JEdge, len(s.edges))
+	copy(edges, s.edges)
+	return edges
 }
 
 func (s *jSchema) Validate(ctx context.Context, rec JRecord) error {
@@ -169,45 +128,15 @@ func (s *jSchema) Validate(ctx context.Context, rec JRecord) error {
 	return nil
 }
 
-func (s *jSchema) AddValidation(fn ValidationFunc) {
-	if s.immutable {
-		logger.Schema.Error().
-			Str("schema", s.name).
-			Msg("attempted to modify immutable schema")
-		panic("cannot modify immutable schema: use ReplaceSchema to create a new schema")
-	}
-
-	logger.Schema.Debug().
-		Str("schema", s.name).
-		Msg("adding validation to schema")
-
-	s.validations = append(s.validations, fn)
-}
-
 func (s *jSchema) Validations() []ValidationFunc {
-	return s.validations
+	// Return a copy to prevent external modification
+	validations := make([]ValidationFunc, len(s.validations))
+	copy(validations, s.validations)
+	return validations
 }
 
 func (s *jSchema) GetIDField() JField {
 	return s.idField
-}
-
-func (s *jSchema) SetIDField(field JField) JSchema {
-	if s.immutable {
-		logger.Schema.Error().
-			Str("schema", s.name).
-			Str("field", field.Name()).
-			Msg("attempted to modify immutable schema")
-		panic("cannot modify immutable schema: use ReplaceSchema to create a new schema")
-	}
-
-	logger.Schema.Debug().
-		Str("schema", s.name).
-		Str("field", field.Name()).
-		Msg("setting ID field")
-
-	s.idField = field
-	return s
 }
 
 // String returns a string representation of the schema
@@ -240,75 +169,248 @@ func (s *jSchema) String() string {
 	return sb.String()
 }
 
-// IsImmutable returns whether the schema is immutable
-func (s *jSchema) IsImmutable() bool {
-	return s.immutable
-}
-
-// Clone creates a mutable copy of the schema
-func (s *jSchema) Clone() JSchema {
-	clone := &jSchema{
+// Update creates a new schema with modifications applied via callback
+// The callback receives a SchemaBuilder initialized with a clone of this schema
+func (s *jSchema) Update(fn func(*SchemaBuilder)) JSchema {
+	// Create a new builder with a copy of the current schema state
+	builder := &SchemaBuilder{
 		name:        s.name,
-		fields:      make(map[string]JField),
-		refs:        make(map[string]JRef),
+		fields:      make(map[string]*fieldBuilder),
+		refs:        make(map[string]*refConfig),
 		edges:       make([]JEdge, len(s.edges)),
 		validations: make([]ValidationFunc, len(s.validations)),
-		idField:     nil,   // Will be set during field copying
-		immutable:   false, // Clone is always mutable
+		idFieldName: "",
 	}
 
-	// Copy fields (create new mutable copies)
+	// Copy fields
 	for name, field := range s.fields {
-		// Create a new field with the same properties but mutable
-		newField := NewJField(field.Name(), field.Type(), field.DefaultValue())
-		if field.IsRequired() {
-			newField.SetRequired(true)
+		builder.fields[name] = &fieldBuilder{
+			name:         field.Name(),
+			fieldType:    field.Type(),
+			defaultValue: field.DefaultValue(),
+			required:     field.IsRequired(),
+			unique:       field.IsUnique(),
+			validation:   field.Validation(),
 		}
-		if field.IsUnique() {
-			newField.SetUnique(true)
-		}
-		if field.Validation() != nil {
-			newField.SetValidation(field.Validation())
-		}
-		clone.fields[name] = newField
+	}
 
-		// Set the ID field if this was the original ID field
-		if s.idField != nil && field.Name() == s.idField.Name() {
-			clone.idField = newField
-		}
+	// Set ID field name
+	if s.idField != nil {
+		builder.idFieldName = s.idField.Name()
 	}
 
 	// Copy refs
 	for name, ref := range s.refs {
-		clone.refs[name] = ref
+		builder.refs[name] = &refConfig{
+			name:   ref.Name(),
+			schema: ref.TargetSchema(),
+			array:  ref.IsArray(),
+		}
 	}
 
 	// Copy edges
-	copy(clone.edges, s.edges)
+	copy(builder.edges, s.edges)
 
 	// Copy validations
-	copy(clone.validations, s.validations)
+	copy(builder.validations, s.validations)
 
-	return clone
+	// Apply the modifications
+	fn(builder)
+
+	// Build and return the new immutable schema
+	return builder.Build()
 }
 
-// Freeze makes the schema immutable
+// Clone creates a copy of the schema (for backward compatibility)
+func (s *jSchema) Clone() JSchema {
+	return s.Update(func(sb *SchemaBuilder) {
+		// No modifications, just return a copy
+	})
+}
+
+// IsImmutable always returns true (for backward compatibility)
+func (s *jSchema) IsImmutable() bool {
+	return true
+}
+
+// Freeze returns the schema itself (for backward compatibility)
 func (s *jSchema) Freeze() JSchema {
 	logger.Schema.Info().
 		Str("schema", s.name).
 		Msg("freezing schema to make it immutable")
+	return s
+}
 
-	s.immutable = true
+// Legacy constructor functions for backward compatibility
+// These will be deprecated in favor of SchemaBuilder
 
-	// Also freeze all fields
-	for _, field := range s.fields {
-		field.Freeze()
+// NewJSchema creates a new mutable schema (deprecated - use NewSchemaBuilder instead)
+// This is kept for backward compatibility with existing code
+func NewJSchema(name string) *mutableSchemaAdapter {
+	return &mutableSchemaAdapter{
+		builder: NewSchemaBuilder(name),
+	}
+}
+
+// NewImmutableJSchema creates a new immutable schema (deprecated - use NewSchemaBuilder instead)
+func NewImmutableJSchema(name string) JSchema {
+	return NewSchemaBuilder(name).Build()
+}
+
+// mutableSchemaAdapter provides backward compatibility for code that uses the old mutable API
+// This adapter allows mutation through method calls but builds an immutable schema when needed
+type mutableSchemaAdapter struct {
+	builder *SchemaBuilder
+	built   JSchema
+}
+
+func (m *mutableSchemaAdapter) Name() string {
+	if m.built != nil {
+		return m.built.Name()
+	}
+	return m.builder.name
+}
+
+func (m *mutableSchemaAdapter) Fields() []JField {
+	if m.built != nil {
+		return m.built.Fields()
+	}
+	m.built = m.builder.Build()
+	return m.built.Fields()
+}
+
+func (m *mutableSchemaAdapter) Field(name string) (JField, bool) {
+	if m.built != nil {
+		return m.built.Field(name)
+	}
+	m.built = m.builder.Build()
+	return m.built.Field(name)
+}
+
+func (m *mutableSchemaAdapter) Refs() []JRef {
+	if m.built != nil {
+		return m.built.Refs()
+	}
+	m.built = m.builder.Build()
+	return m.built.Refs()
+}
+
+func (m *mutableSchemaAdapter) Ref(name string) (JRef, bool) {
+	if m.built != nil {
+		return m.built.Ref(name)
+	}
+	m.built = m.builder.Build()
+	return m.built.Ref(name)
+}
+
+func (m *mutableSchemaAdapter) Edges() []JEdge {
+	if m.built != nil {
+		return m.built.Edges()
+	}
+	m.built = m.builder.Build()
+	return m.built.Edges()
+}
+
+func (m *mutableSchemaAdapter) Validate(ctx context.Context, rec JRecord) error {
+	if m.built == nil {
+		m.built = m.builder.Build()
+	}
+	return m.built.Validate(ctx, rec)
+}
+
+func (m *mutableSchemaAdapter) Validations() []ValidationFunc {
+	if m.built != nil {
+		return m.built.Validations()
+	}
+	m.built = m.builder.Build()
+	return m.built.Validations()
+}
+
+func (m *mutableSchemaAdapter) GetIDField() JField {
+	if m.built == nil {
+		m.built = m.builder.Build()
+	}
+	return m.built.GetIDField()
+}
+
+func (m *mutableSchemaAdapter) String() string {
+	if m.built == nil {
+		m.built = m.builder.Build()
+	}
+	return m.built.String()
+}
+
+func (m *mutableSchemaAdapter) Update(fn func(*SchemaBuilder)) JSchema {
+	if m.built == nil {
+		m.built = m.builder.Build()
+	}
+	return m.built.Update(fn)
+}
+
+// Freeze returns the built immutable schema (for backward compatibility)
+func (m *mutableSchemaAdapter) Freeze() JSchema {
+	if m.built == nil {
+		m.built = m.builder.Build()
+	}
+	logger.Schema.Info().
+		Str("schema", m.built.Name()).
+		Msg("freezing schema to make it immutable")
+	return m.built
+}
+
+// Clone creates a new mutable adapter (for backward compatibility)
+func (m *mutableSchemaAdapter) Clone() JSchema {
+	if m.built == nil {
+		m.built = m.builder.Build()
 	}
 
-	logger.Schema.Debug().
-		Str("schema", s.name).
-		Int("fields_count", len(s.fields)).
-		Msg("schema frozen successfully")
+	// Create a new builder from the built schema
+	newBuilder := &SchemaBuilder{
+		name:        m.built.Name(),
+		fields:      make(map[string]*fieldBuilder),
+		refs:        make(map[string]*refConfig),
+		edges:       make([]JEdge, len(m.built.Edges())),
+		validations: make([]ValidationFunc, len(m.built.Validations())),
+	}
 
-	return s
+	// Copy fields
+	for _, field := range m.built.Fields() {
+		newBuilder.fields[field.Name()] = &fieldBuilder{
+			name:         field.Name(),
+			fieldType:    field.Type(),
+			defaultValue: field.DefaultValue(),
+			required:     field.IsRequired(),
+			unique:       field.IsUnique(),
+			validation:   field.Validation(),
+		}
+	}
+
+	// Set ID field name
+	if m.built.GetIDField() != nil {
+		newBuilder.idFieldName = m.built.GetIDField().Name()
+	}
+
+	// Copy refs
+	for _, ref := range m.built.Refs() {
+		newBuilder.refs[ref.Name()] = &refConfig{
+			name:   ref.Name(),
+			schema: ref.TargetSchema(),
+			array:  ref.IsArray(),
+		}
+	}
+
+	// Copy edges
+	copy(newBuilder.edges, m.built.Edges())
+
+	// Copy validations
+	copy(newBuilder.validations, m.built.Validations())
+
+	return &mutableSchemaAdapter{
+		builder: newBuilder,
+	}
+}
+
+// IsImmutable returns false for adapter (backward compatibility)
+func (m *mutableSchemaAdapter) IsImmutable() bool {
+	return false
 }

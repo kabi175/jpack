@@ -168,15 +168,15 @@ func TestJEdge_AllEdgeTypes(t *testing.T) {
 
 func TestJEdge_ComplexSchemas(t *testing.T) {
 	t.Run("edge between complex schemas", func(t *testing.T) {
-		userSchema := NewJSchema("User")
-		userSchema.AddField("id", JString, "").SetRequired(true)
-		userSchema.AddField("name", JString, "").SetRequired(true)
-		userSchema.AddField("email", JString, "").SetRequired(true)
+		userSchema := NewSchemaBuilder("User").
+			AddRequiredField("name", JString, "").
+			AddRequiredField("email", JString, "").
+			Build()
 
-		orderSchema := NewJSchema("Order")
-		orderSchema.AddField("id", JString, "").SetRequired(true)
-		orderSchema.AddField("total", JFloat64, 0.0)
-		orderSchema.AddField("status", JString, "pending")
+		orderSchema := NewSchemaBuilder("Order").
+			AddField("total", JFloat64, 0.0).
+			AddField("status", JString, "pending").
+			Build()
 
 		edge := NewJEdge("user_orders", userSchema, orderSchema, EdgeOneToMany)
 
@@ -185,21 +185,19 @@ func TestJEdge_ComplexSchemas(t *testing.T) {
 		assert.Equal(t, orderSchema, edge.ToSchema())
 		assert.Equal(t, EdgeOneToMany, edge.Type())
 
-		// Verify schemas have fields
-		assert.Len(t, userSchema.Fields(), 3)
-		assert.Len(t, orderSchema.Fields(), 3)
+		// Verify schemas have fields (including automatic ID field)
+		assert.Len(t, userSchema.Fields(), 3)  // id, name, email
+		assert.Len(t, orderSchema.Fields(), 3) // id, total, status
 	})
 
 	t.Run("edge between schemas with refs", func(t *testing.T) {
-		userSchema := NewJSchema("User")
-		profileSchema := NewJSchema("Profile")
-		orderSchema := NewJSchema("Order")
-
-		// User has profile
-		userSchema.AddRef("profile", profileSchema)
-
-		// Order references user
-		orderSchema.AddRef("user", userSchema)
+		profileSchema := NewSchemaBuilder("Profile").Build()
+		userSchema := NewSchemaBuilder("User").
+			AddRef("profile", profileSchema).
+			Build()
+		orderSchema := NewSchemaBuilder("Order").
+			AddRef("user", userSchema).
+			Build()
 
 		edge := NewJEdge("user_orders", userSchema, orderSchema, EdgeOneToMany)
 
@@ -214,17 +212,21 @@ func TestJEdge_ComplexSchemas(t *testing.T) {
 	})
 
 	t.Run("edge between schemas with edges", func(t *testing.T) {
-		userSchema := NewJSchema("User")
-		orderSchema := NewJSchema("Order")
-		productSchema := NewJSchema("Product")
+		userSchema := NewSchemaBuilder("User").Build()
+		orderSchema := NewSchemaBuilder("Order").Build()
+		productSchema := NewSchemaBuilder("Product").Build()
 
 		// User -> Order
 		userOrderEdge := NewJEdge("user_orders", userSchema, orderSchema, EdgeOneToMany)
-		userSchema.AddEdge(userOrderEdge)
+		userSchema = userSchema.Update(func(sb *SchemaBuilder) {
+			sb.AddEdge(userOrderEdge)
+		})
 
 		// Order -> Product
 		orderProductEdge := NewJEdge("order_products", orderSchema, productSchema, EdgeManyToMany)
-		orderSchema.AddEdge(orderProductEdge)
+		orderSchema = orderSchema.Update(func(sb *SchemaBuilder) {
+			sb.AddEdge(orderProductEdge)
+		})
 
 		// User -> Product (through orders)
 		userProductEdge := NewJEdge("user_products", userSchema, productSchema, EdgeOneToMany)
@@ -457,17 +459,17 @@ func TestJEdge_ComplexRelationship(t *testing.T) {
 }
 
 func TestJEdge_Validation(t *testing.T) {
-	userSchema := NewJSchema("User")
-	orderSchema := NewJSchema("Order")
+	userSchema := NewSchemaBuilder("User").
+		AddValidation(func(ctx context.Context, rec JRecord) error {
+			return nil
+		}).
+		Build()
 
-	// Add validations to schemas
-	userSchema.AddValidation(func(ctx context.Context, rec JRecord) error {
-		return nil
-	})
-
-	orderSchema.AddValidation(func(ctx context.Context, rec JRecord) error {
-		return nil
-	})
+	orderSchema := NewSchemaBuilder("Order").
+		AddValidation(func(ctx context.Context, rec JRecord) error {
+			return nil
+		}).
+		Build()
 
 	// Create edge
 	edge := NewJEdge("user_orders", userSchema, orderSchema, EdgeOneToMany)

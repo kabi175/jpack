@@ -45,7 +45,7 @@ func TestNewJField(t *testing.T) {
 			assert.Equal(t, tt.defaultValue, field.DefaultValue())
 			assert.False(t, field.IsRequired())
 			assert.False(t, field.IsUnique())
-			assert.False(t, field.IsImmutable())
+			assert.True(t, field.IsImmutable()) // All fields are now immutable
 			assert.Nil(t, field.Validation())
 		})
 	}
@@ -54,53 +54,59 @@ func TestNewJField(t *testing.T) {
 func TestJField_SetRequired(t *testing.T) {
 	field := NewJField("name", JString, "default")
 
-	// Test setting required to true
-	result := field.SetRequired(true)
-	assert.Equal(t, field, result) // Should return self for chaining
-	assert.True(t, field.IsRequired())
+	// Test setting required to true using Update method
+	updatedField := field.Update(func(fb *FieldBuilder) {
+		fb.Required()
+	})
+	assert.True(t, updatedField.IsRequired())
+	assert.False(t, field.IsRequired()) // Original field should remain unchanged
 
 	// Test setting required to false
-	field.SetRequired(false)
-	assert.False(t, field.IsRequired())
-
-	// Test chaining
-	field.SetRequired(true).SetRequired(false)
-	assert.False(t, field.IsRequired())
+	updatedField2 := updatedField.Update(func(fb *FieldBuilder) {
+		fb.SetRequired(false)
+	})
+	assert.False(t, updatedField2.IsRequired())
+	assert.True(t, updatedField.IsRequired()) // Previous field should remain unchanged
 }
 
 func TestJField_SetRequired_Immutable(t *testing.T) {
 	field := NewJField("name", JString, "default")
-	field.Freeze()
 
-	assert.Panics(t, func() {
-		field.SetRequired(true)
-	}, "should panic when modifying immutable field")
+	// All fields are now immutable by default, so we use Update method
+	updatedField := field.Update(func(fb *FieldBuilder) {
+		fb.Required()
+	})
+	assert.True(t, updatedField.IsRequired())
+	assert.False(t, field.IsRequired()) // Original field should remain unchanged
 }
 
 func TestJField_SetUnique(t *testing.T) {
 	field := NewJField("email", JString, "")
 
-	// Test setting unique to true
-	result := field.SetUnique(true)
-	assert.Equal(t, field, result) // Should return self for chaining
-	assert.True(t, field.IsUnique())
+	// Test setting unique to true using Update method
+	updatedField := field.Update(func(fb *FieldBuilder) {
+		fb.Unique()
+	})
+	assert.True(t, updatedField.IsUnique())
+	assert.False(t, field.IsUnique()) // Original field should remain unchanged
 
 	// Test setting unique to false
-	field.SetUnique(false)
-	assert.False(t, field.IsUnique())
-
-	// Test chaining
-	field.SetUnique(true).SetUnique(false)
-	assert.False(t, field.IsUnique())
+	updatedField2 := updatedField.Update(func(fb *FieldBuilder) {
+		fb.SetUnique(false)
+	})
+	assert.False(t, updatedField2.IsUnique())
+	assert.True(t, updatedField.IsUnique()) // Previous field should remain unchanged
 }
 
 func TestJField_SetUnique_Immutable(t *testing.T) {
 	field := NewJField("email", JString, "")
-	field.Freeze()
 
-	assert.Panics(t, func() {
-		field.SetUnique(true)
-	}, "should panic when modifying immutable field")
+	// All fields are now immutable by default, so we use Update method
+	updatedField := field.Update(func(fb *FieldBuilder) {
+		fb.Unique()
+	})
+	assert.True(t, updatedField.IsUnique())
+	assert.False(t, field.IsUnique()) // Original field should remain unchanged
 }
 
 func TestJField_SetValidation(t *testing.T) {
@@ -117,49 +123,53 @@ func TestJField_SetValidation(t *testing.T) {
 		return nil
 	}
 
-	result := field.SetValidation(validationFunc)
-	assert.Equal(t, field, result) // Should return self for chaining
-	assert.NotNil(t, field.Validation())
+	updatedField := field.Update(func(fb *FieldBuilder) {
+		fb.WithValidation(validationFunc)
+	})
+	assert.NotNil(t, updatedField.Validation())
+	assert.Nil(t, field.Validation()) // Original field should remain unchanged
 
 	// Test setting validation to nil
-	field.SetValidation(nil)
-	assert.Nil(t, field.Validation())
+	updatedField2 := updatedField.Update(func(fb *FieldBuilder) {
+		fb.WithValidation(nil)
+	})
+	assert.Nil(t, updatedField2.Validation())
+	assert.NotNil(t, updatedField.Validation()) // Previous field should remain unchanged
 }
 
 func TestJField_SetValidation_Immutable(t *testing.T) {
 	field := NewJField("age", JInt, 0)
-	field.Freeze()
 
 	validationFunc := func(ctx context.Context, rec JRecord) error {
 		return nil
 	}
 
-	assert.Panics(t, func() {
-		field.SetValidation(validationFunc)
-	}, "should panic when modifying immutable field")
+	// All fields are now immutable by default, so we use Update method
+	updatedField := field.Update(func(fb *FieldBuilder) {
+		fb.WithValidation(validationFunc)
+	})
+	assert.NotNil(t, updatedField.Validation())
+	assert.Nil(t, field.Validation()) // Original field should remain unchanged
 }
 
 func TestJField_Freeze(t *testing.T) {
 	field := NewJField("name", JString, "default")
-	field.SetRequired(true).SetUnique(true)
 
-	// Test freezing
-	result := field.Freeze()
-	assert.Equal(t, field, result) // Should return self for chaining
+	// All fields are now immutable by default
 	assert.True(t, field.IsImmutable())
 
-	// Test that modifications are now blocked
-	assert.Panics(t, func() {
-		field.SetRequired(false)
-	})
+	// Test freezing (should return the same field)
+	result := field.Freeze()
+	assert.Equal(t, field, result)
 
-	assert.Panics(t, func() {
-		field.SetUnique(false)
+	// Test that modifications use Update method instead of direct mutation
+	updatedField := field.Update(func(fb *FieldBuilder) {
+		fb.Required().Unique()
 	})
-
-	assert.Panics(t, func() {
-		field.SetValidation(nil)
-	})
+	assert.True(t, updatedField.IsRequired())
+	assert.True(t, updatedField.IsUnique())
+	assert.False(t, field.IsRequired()) // Original field should remain unchanged
+	assert.False(t, field.IsUnique())   // Original field should remain unchanged
 }
 
 func TestJField_Freeze_AlreadyImmutable(t *testing.T) {
@@ -215,38 +225,44 @@ func TestJField_EdgeCases(t *testing.T) {
 func TestJField_Validation_EdgeCases(t *testing.T) {
 	t.Run("validation with nil context", func(t *testing.T) {
 		field := NewJField("test", JString, "default")
-		field.SetValidation(func(ctx context.Context, rec JRecord) error {
-			if ctx == nil {
-				return assert.AnError
-			}
-			return nil
+		updatedField := field.Update(func(fb *FieldBuilder) {
+			fb.WithValidation(func(ctx context.Context, rec JRecord) error {
+				if ctx == nil {
+					return assert.AnError
+				}
+				return nil
+			})
 		})
 
 		// This test is more about ensuring the validation function can handle nil context
 		// In practice, context should never be nil when called from schema validation
-		assert.NotNil(t, field.Validation())
+		assert.NotNil(t, updatedField.Validation())
 	})
 
 	t.Run("validation with nil record", func(t *testing.T) {
 		field := NewJField("test", JString, "default")
-		field.SetValidation(func(ctx context.Context, rec JRecord) error {
-			if rec == nil {
-				return assert.AnError
-			}
-			return nil
+		updatedField := field.Update(func(fb *FieldBuilder) {
+			fb.WithValidation(func(ctx context.Context, rec JRecord) error {
+				if rec == nil {
+					return assert.AnError
+				}
+				return nil
+			})
 		})
 
-		assert.NotNil(t, field.Validation())
+		assert.NotNil(t, updatedField.Validation())
 	})
 
 	t.Run("validation that panics", func(t *testing.T) {
 		field := NewJField("test", JString, "default")
-		field.SetValidation(func(ctx context.Context, rec JRecord) error {
-			panic("validation panic")
+		updatedField := field.Update(func(fb *FieldBuilder) {
+			fb.WithValidation(func(ctx context.Context, rec JRecord) error {
+				panic("validation panic")
+			})
 		})
 
 		// Test that the validation function is stored correctly
-		assert.NotNil(t, field.Validation())
+		assert.NotNil(t, updatedField.Validation())
 	})
 }
 
@@ -268,15 +284,22 @@ func TestJField_AllFieldTypes(t *testing.T) {
 func TestJField_Chaining(t *testing.T) {
 	field := NewJField("email", JString, "")
 
-	// Test method chaining
-	result := field.SetRequired(true).SetUnique(true).SetValidation(func(ctx context.Context, rec JRecord) error {
-		return nil
+	// Test method chaining using Update method
+	result := field.Update(func(fb *FieldBuilder) {
+		fb.Required().Unique().WithValidation(func(ctx context.Context, rec JRecord) error {
+			return nil
+		})
 	})
 
-	assert.Equal(t, field, result)
-	assert.True(t, field.IsRequired())
-	assert.True(t, field.IsUnique())
-	assert.NotNil(t, field.Validation())
+	assert.NotEqual(t, field, result) // Should return a new field
+	assert.True(t, result.IsRequired())
+	assert.True(t, result.IsUnique())
+	assert.NotNil(t, result.Validation())
+
+	// Original field should remain unchanged
+	assert.False(t, field.IsRequired())
+	assert.False(t, field.IsUnique())
+	assert.Nil(t, field.Validation())
 }
 
 func TestJField_ConcurrentAccess(t *testing.T) {
@@ -322,28 +345,30 @@ func TestJField_ConcurrentAccess(t *testing.T) {
 func TestJField_ComplexValidation(t *testing.T) {
 	field := NewJField("email", JString, "")
 
-	// Add complex validation
-	field.SetValidation(func(ctx context.Context, rec JRecord) error {
-		email := rec.Get("email")
-		if email == nil {
-			return nil // Let required validation handle this
-		}
+	// Add complex validation using Update method
+	field = field.Update(func(fb *FieldBuilder) {
+		fb.WithValidation(func(ctx context.Context, rec JRecord) error {
+			email := rec.Get("email")
+			if email == nil {
+				return nil // Let required validation handle this
+			}
 
-		emailStr, ok := email.(string)
-		if !ok {
-			return assert.AnError
-		}
+			emailStr, ok := email.(string)
+			if !ok {
+				return assert.AnError
+			}
 
-		// Simple email validation
-		if len(emailStr) == 0 {
-			return assert.AnError
-		}
+			// Simple email validation
+			if len(emailStr) == 0 {
+				return assert.AnError
+			}
 
-		if !strings.Contains(emailStr, "@") {
-			return assert.AnError
-		}
+			if !strings.Contains(emailStr, "@") {
+				return assert.AnError
+			}
 
-		return nil
+			return nil
+		})
 	})
 
 	// Test validation function

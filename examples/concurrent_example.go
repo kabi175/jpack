@@ -64,10 +64,10 @@ func (t *TestSchemaSource) Load(schemaName string) (schema.JSchema, error) {
 	// Simulate some loading time
 	time.Sleep(10 * time.Millisecond)
 
-	// Create a simple schema
-	s := schema.NewJSchema(schemaName)
-	s.AddField("id", schema.JString, nil)
-	s.AddField("name", schema.JString, nil)
+	// Create a simple schema (ID field is automatically created)
+	s := schema.NewSchemaBuilder(schemaName).
+		AddField("name", schema.JString, nil).
+		Build()
 
 	return s, nil
 }
