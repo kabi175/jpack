@@ -17,6 +17,7 @@ type ValidationError struct {
 	Field   string
 	Message string
 	Value   any
+	Data    map[string]any
 }
 
 func (e *ValidationError) Error() string {
