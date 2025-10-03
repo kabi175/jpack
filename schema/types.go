@@ -97,12 +97,18 @@ type JSchema interface {
 	Freeze() JSchema
 }
 
+// ExternalSchemaSource represents a source for schema definitions
+type ExternalSchemaSource interface {
+	Load(schemaName string) (JSchema, error)
+}
+
 // JSchemaRegistry manages schemas
 type JSchemaRegistry interface {
 	Register(schema JSchema) error
+	RegisterLazy(schemaName string, datasource ExternalSchemaSource) error
 	Get(name string) (JSchema, bool)
 	Unregister(name string) error
-	List() []string
+	List() []JSchema
 	Replace(schema JSchema) error
 	RegisterImmutable(schema JSchema) error
 }
