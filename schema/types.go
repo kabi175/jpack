@@ -95,6 +95,7 @@ type JSchema interface {
 	IsImmutable() bool
 	Clone() JSchema
 	Freeze() JSchema
+	String() string
 }
 
 // ExternalSchemaSource represents a source for schema definitions
