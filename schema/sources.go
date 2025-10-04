@@ -98,7 +98,12 @@ func (f *FileSchemaSource) Load(schemaName string) (JSchema, error) {
 		}
 	}
 
-	return f.schemas[schemaName], nil
+	schema, exists := f.schemas[schemaName]
+	if !exists {
+		return nil, fmt.Errorf("schema '%s' not found in file '%s'", schemaName, f.Path)
+	}
+
+	return schema, nil
 }
 
 func (f *FileSchemaSource) loadAll() error {

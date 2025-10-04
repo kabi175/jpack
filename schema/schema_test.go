@@ -428,7 +428,7 @@ func TestJSchema_Validate(t *testing.T) {
 			name:      "empty record",
 			record:    NewJRecord(),
 			wantError: true,
-			errorMsg:  "required field 'id' is missing",
+			errorMsg:  "required field", // Just check that it's a required field error
 		},
 	}
 

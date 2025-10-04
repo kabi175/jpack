@@ -3,6 +3,7 @@ package schema
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -361,7 +362,7 @@ func TestFileSchemaSource_Load_SpecificSchema(t *testing.T) {
 
 func TestFileSchemaSource_Load_FileNotFound(t *testing.T) {
 	source := NewFileSchemaSource("non_existent_file", "non_existent_file.yaml")
-	schema, err := source.Load("")
+	schema, err := source.Load("TestSchema")
 
 	assert.Error(t, err)
 	assert.Nil(t, schema)
@@ -390,7 +391,7 @@ fields:
 	tmpFile.Close()
 
 	source := NewFileSchemaSource("test_no_ext", tmpFile.Name())
-	schema, err := source.Load("")
+	schema, err := source.Load("User")
 
 	assert.NoError(t, err)
 	assert.NotNil(t, schema)
@@ -727,7 +728,7 @@ edges:
 	tmpFile.Close()
 
 	source := NewFileSchemaSource("test_complex", tmpFile.Name())
-	schema, err := source.Load("")
+	schema, err := source.Load("ECommerce")
 
 	assert.NoError(t, err)
 	assert.NotNil(t, schema)
@@ -876,7 +877,7 @@ func TestFileSchemaSource_Load_BulkWithComplexSchemas(t *testing.T) {
 		schema, err := source.Load("NonExistent")
 		assert.Error(t, err)
 		assert.Nil(t, schema)
-		assert.Contains(t, err.Error(), "not found in bulk file")
+		assert.Contains(t, err.Error(), "not found")
 	})
 }
 
@@ -946,12 +947,24 @@ edges: []
 			tmpFile.Close()
 
 			source := NewFileSchemaSource("test_edge_case", tmpFile.Name())
-			schema, err := source.Load("")
 
 			if tt.wantErr {
+				// For error cases, try to load with empty name to trigger error
+				schema, err := source.Load("")
 				assert.Error(t, err)
 				assert.Nil(t, schema)
 			} else {
+				// For success cases, determine the schema name from content
+				var schemaName string
+				if strings.Contains(tt.content, "name: EmptySchema") {
+					schemaName = "EmptySchema"
+				} else if strings.Contains(tt.content, "name: MinimalSchema") {
+					schemaName = "MinimalSchema"
+				} else {
+					schemaName = "" // Will cause error
+				}
+
+				schema, err := source.Load(schemaName)
 				assert.NoError(t, err)
 				assert.NotNil(t, schema)
 			}
@@ -981,7 +994,7 @@ fields:
 	require.NoError(t, err)
 
 	source := NewFileSchemaSource("test_absolute", absPath)
-	schema, err := source.Load("")
+	schema, err := source.Load("TestSchema")
 
 	assert.NoError(t, err)
 	assert.NotNil(t, schema)
@@ -990,7 +1003,7 @@ fields:
 	// Test with relative path
 	relPath := filepath.Base(tmpFile.Name())
 	source = NewFileSchemaSource("test_relative", relPath)
-	schema, err = source.Load("")
+	schema, err = source.Load("TestSchema")
 
 	// This might fail depending on current working directory
 	// but we're testing that the path is handled correctly
