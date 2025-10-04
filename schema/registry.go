@@ -150,6 +150,26 @@ func (r *jSchemaRegistry) Unregister(name string) error {
 	defer r.mutex.Unlock()
 
 	if _, exists := r.schemas[name]; !exists {
+
+		logger.Schema.Debug().
+			Str("schema", name).
+			Msg("attempting to unregister schema from external sources")
+
+		for _, datasource := range r.externalSources {
+			if ok, err := datasource.Has(name); ok {
+				err := datasource.UnRegisterSchema(name)
+				if err != nil {
+					return err
+				}
+			} else if err != nil {
+				logger.Schema.Error().
+					Str("datasource", datasource.Name()).
+					Err(err).
+					Msg("failed to check if schema exists in external source")
+				return err
+			}
+		}
+
 		logger.Schema.Warn().
 			Str("schema", name).
 			Msg("attempted to unregister non-existent schema")
@@ -207,6 +227,26 @@ func (r *jSchemaRegistry) Replace(schema JSchema) error {
 
 	// Check if schema exists
 	if _, exists := r.schemas[schema.Name()]; !exists {
+
+		logger.Schema.Debug().
+			Str("schema", schema.Name()).
+			Msg("attempting to replace schema in external sources")
+
+		for _, datasource := range r.externalSources {
+			if ok, err := datasource.Has(schema.Name()); ok {
+				err := datasource.ReplaceSchema(schema.Name(), schema)
+				if err != nil {
+					return err
+				}
+			} else if err != nil {
+				logger.Schema.Error().
+					Str("datasource", datasource.Name()).
+					Err(err).
+					Msg("failed to check if schema exists in external source")
+				return err
+			}
+		}
+
 		logger.Schema.Warn().
 			Str("schema", schema.Name()).
 			Msg("attempted to replace non-existent schema")
