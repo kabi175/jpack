@@ -259,8 +259,16 @@ type JSchema interface {
 //		return parseSchema(data), nil
 //	}
 type ExternalSchemaSource interface {
+	// Name returns the name of the external source
+	Name() string
+	// Has checks if a schema exists in the external source
+	Has(schemaName string) (bool, error)
 	// Load loads a schema by name from the external source
 	Load(schemaName string) (JSchema, error)
+	// ReplaceSchema replaces a schema in the external source
+	ReplaceSchema(schemaName string, newSchema JSchema) error
+	// UnRegisterSchema unregisters a schema from the external source
+	UnRegisterSchema(schemaName string) error
 }
 
 // JSchemaRegistry manages schemas.
@@ -282,16 +290,12 @@ type ExternalSchemaSource interface {
 type JSchemaRegistry interface {
 	// Register registers a schema immediately
 	Register(schema JSchema) error
-	// RegisterLazy registers a schema for lazy loading
-	RegisterLazy(schemaName string, datasource ExternalSchemaSource) error
+	// RegisterExternalSource registers a schema for lazy loading
+	RegisterExternalSource(datasource ExternalSchemaSource) error
 	// Get retrieves a schema by name
 	Get(name string) (JSchema, bool)
 	// Unregister removes a schema from the registry
 	Unregister(name string) error
-	// List returns all registered schemas
-	List() []JSchema
 	// Replace replaces an existing schema
 	Replace(schema JSchema) error
-	// RegisterImmutable registers an immutable schema (deprecated - all schemas are immutable)
-	RegisterImmutable(schema JSchema) error
 }

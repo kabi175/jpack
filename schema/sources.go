@@ -3,12 +3,12 @@ package schema
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
-	"github.com/kabi175/jpack/logger"
-	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,60 +43,96 @@ type EdgeDef struct {
 
 // FileSchemaSource loads schema definitions from JSON and YAML files
 type FileSchemaSource struct {
+	name string
 	Path string
+
+	schemas map[string]JSchema
+	mutex   sync.RWMutex
+	loaded  bool
 }
 
+var _ ExternalSchemaSource = &FileSchemaSource{}
+
 // NewFileSchemaSource creates a new file-based schema source
-func NewFileSchemaSource(path string) *FileSchemaSource {
-	return &FileSchemaSource{Path: path}
+func NewFileSchemaSource(name string, path string) ExternalSchemaSource {
+	return &FileSchemaSource{
+		name:    name,
+		Path:    path,
+		schemas: make(map[string]JSchema),
+		loaded:  false,
+		mutex:   sync.RWMutex{},
+	}
+}
+
+// Has implements ExternalSchemaSource.
+func (f *FileSchemaSource) Has(schemaName string) (bool, error) {
+	f.mutex.RLock()
+	_, exists := f.schemas[schemaName]
+	f.mutex.RUnlock()
+	return exists, nil
+}
+
+// Name implements ExternalSchemaSource.
+func (f *FileSchemaSource) Name() string {
+	return f.name
+}
+
+// ReplaceSchema implements ExternalSchemaSource.
+func (f *FileSchemaSource) ReplaceSchema(schemaName string, newSchema JSchema) error {
+	panic("unimplemented")
+}
+
+// UnRegisterSchema implements ExternalSchemaSource.
+func (f *FileSchemaSource) UnRegisterSchema(schemaName string) error {
+	panic("unimplemented")
 }
 
 // Load loads a schema definition from a JSON or YAML file
 func (f *FileSchemaSource) Load(schemaName string) (JSchema, error) {
+	f.mutex.RLock()
+	defer f.mutex.RUnlock()
+
+	if !f.loaded {
+		if err := f.loadAll(); err != nil {
+			return nil, err
+		}
+	}
+
+	return f.schemas[schemaName], nil
+}
+
+func (f *FileSchemaSource) loadAll() error {
 	data, err := os.ReadFile(f.Path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read schema file %s: %w", f.Path, err)
+		return fmt.Errorf("failed to read schema file %s: %w", f.Path, err)
 	}
 
-	// First try to load as bulk schema ([]SchemaDef)
+	var singleDef SchemaDef
+	singleErr := f.tryUnmarshal(data, &singleDef)
+	if singleErr == nil {
+		schema, err := ConvertDefToSchema(singleDef)
+		if err != nil {
+			return fmt.Errorf("failed to convert schema definition to schema: %w", err)
+		}
+		f.schemas[singleDef.Name] = schema
+		return nil
+	}
+	log.Printf("failed to unmarshal schema definition as single schema: %v", singleErr)
+
 	var bulkDefs []SchemaDef
 	bulkErr := f.tryUnmarshal(data, &bulkDefs)
+	if bulkErr != nil {
+		return fmt.Errorf("failed to unmarshal schema definition as bulk or single schema: bulk error: %v", bulkErr)
+	}
 
-	if bulkErr == nil && len(bulkDefs) > 0 {
-		// Successfully loaded as bulk schema
-		if schemaName != "" {
-			// Find specific schema by name
-			schemaDef, ok := lo.Find(bulkDefs, func(def SchemaDef) bool {
-				return def.Name == schemaName
-			})
-			if !ok {
-				logger.Schema.Error().
-					Str("schema", schemaName).
-					Str("file", f.Path).
-					Msg("schema not found in bulk file")
-
-				return nil, fmt.Errorf("schema '%s' not found in bulk file %s", schemaName, f.Path)
-			}
-			return ConvertDefToSchema(schemaDef)
+	for _, def := range bulkDefs {
+		schema, err := ConvertDefToSchema(def)
+		if err != nil {
+			return fmt.Errorf("failed to convert schema definition to schema: %w", err)
 		}
-		// Return the first schema if no specific name requested
-		return ConvertDefToSchema(bulkDefs[0])
+		f.schemas[def.Name] = schema
 	}
-
-	// If bulk loading failed, try single schema (SchemaDef)
-	var def SchemaDef
-	singleErr := f.tryUnmarshal(data, &def)
-
-	if singleErr != nil {
-		return nil, fmt.Errorf("failed to unmarshal schema definition as bulk or single schema: bulk error: %v, single error: %w", bulkErr, singleErr)
-	}
-
-	// Override the name if provided
-	if schemaName != "" {
-		def.Name = schemaName
-	}
-
-	return ConvertDefToSchema(def)
+	return nil
 }
 
 // tryUnmarshal attempts to unmarshal data as JSON or YAML
@@ -218,25 +254,6 @@ func parseEdgeType(typeStr string) (EdgeType, error) {
 	default:
 		return "", fmt.Errorf("unknown edge type: %s", typeStr)
 	}
-}
-
-// HTTPSchemaSource loads schema definitions from HTTP endpoints
-type HTTPSchemaSource struct {
-	URL    string
-	Client interface{} // HTTP client interface - can be customized
-}
-
-// NewHTTPSchemaSource creates a new HTTP-based schema source
-func NewHTTPSchemaSource(url string) *HTTPSchemaSource {
-	return &HTTPSchemaSource{URL: url}
-}
-
-// Load loads a schema definition from an HTTP endpoint
-func (h *HTTPSchemaSource) Load(schemaName string) (JSchema, error) {
-	// This is a placeholder implementation
-	// In a real implementation, you would make an HTTP request to h.URL
-	// and parse the response as JSON, similar to FileSchemaSource
-	return nil, fmt.Errorf("HTTPSchemaSource not implemented yet")
 }
 
 // DatabaseSchemaSource loads schema definitions from a database

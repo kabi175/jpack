@@ -458,18 +458,6 @@ func (srb *SchemaRegistryBuilder) RegisterSchema(schema JSchema) *SchemaRegistry
 	return srb
 }
 
-// RegisterImmutableSchema registers an immutable schema in the registry.
-// Deprecated: All schemas are immutable now, use RegisterSchema instead.
-//
-// Example:
-//
-//	builder := schema.NewSchemaRegistryBuilder().
-//		RegisterImmutableSchema(userSchema) // Deprecated
-func (srb *SchemaRegistryBuilder) RegisterImmutableSchema(schema JSchema) *SchemaRegistryBuilder {
-	srb.registry.Register(schema)
-	return srb
-}
-
 // ReplaceSchema replaces an existing schema in the registry.
 // This is useful for schema evolution and updates.
 //

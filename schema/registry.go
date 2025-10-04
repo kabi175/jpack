@@ -7,25 +7,17 @@ import (
 	"github.com/kabi175/jpack/logger"
 )
 
-// lazyEntry represents a lazy-loaded schema entry
-type lazyEntry struct {
-	schema     JSchema
-	datasource ExternalSchemaSource
-	once       sync.Once
-	loaded     bool
-	err        error
-}
-
 // jSchemaRegistry implements JSchemaRegistry interface
 type jSchemaRegistry struct {
-	schemas map[string]*lazyEntry
-	mutex   sync.RWMutex
+	schemas         map[string]JSchema
+	externalSources map[string]ExternalSchemaSource
+	mutex           sync.RWMutex
 }
 
 // NewJSchemaRegistry creates a new schema registry
 func NewJSchemaRegistry() JSchemaRegistry {
 	return &jSchemaRegistry{
-		schemas: make(map[string]*lazyEntry),
+		schemas: make(map[string]JSchema),
 	}
 }
 
@@ -64,10 +56,7 @@ func (r *jSchemaRegistry) Register(schema JSchema) error {
 
 	// Make the schema immutable when registering
 	immutableSchema := schema.Clone().Freeze()
-	r.schemas[schema.Name()] = &lazyEntry{
-		schema: immutableSchema,
-		loaded: true,
-	}
+	r.schemas[schema.Name()] = immutableSchema
 
 	logger.Schema.Debug().
 		Str("schema", schema.Name()).
@@ -77,40 +66,33 @@ func (r *jSchemaRegistry) Register(schema JSchema) error {
 	return nil
 }
 
-func (r *jSchemaRegistry) RegisterLazy(schemaName string, datasource ExternalSchemaSource) error {
+func (r *jSchemaRegistry) RegisterExternalSource(datasource ExternalSchemaSource) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-
-	if schemaName == "" {
-		logger.Schema.Error().Msg("attempted to register lazy schema with empty name")
-		return fmt.Errorf("schema name cannot be empty")
-	}
 
 	if datasource == nil {
 		logger.Schema.Error().Msg("attempted to register lazy schema with nil datasource")
 		return fmt.Errorf("datasource cannot be nil")
 	}
 
-	if _, exists := r.schemas[schemaName]; exists {
+	if datasource.Name() == "" {
+		logger.Schema.Error().Msg("attempted to register lazy schema with empty name")
+		return fmt.Errorf("schema name cannot be empty")
+	}
+
+	if _, exists := r.externalSources[datasource.Name()]; exists {
 		logger.Schema.Warn().
-			Str("schema", schemaName).
-			Msg("schema already registered")
-		return fmt.Errorf("schema '%s' is already registered", schemaName)
+			Str("datasource", datasource.Name()).
+			Msg("datasource already registered")
+		return fmt.Errorf("datasource '%s' is already registered", datasource.Name())
 	}
 
-	logger.Schema.Info().
-		Str("schema", schemaName).
-		Msg("registering lazy schema")
-
-	r.schemas[schemaName] = &lazyEntry{
-		datasource: datasource,
-		loaded:     false,
-	}
+	r.externalSources[datasource.Name()] = datasource
 
 	logger.Schema.Debug().
-		Str("schema", schemaName).
-		Int("total_schemas", len(r.schemas)).
-		Msg("lazy schema registered successfully")
+		Str("datasource", datasource.Name()).
+		Int("total_external_sources", len(r.externalSources)).
+		Msg("datasource registered successfully")
 
 	return nil
 }
@@ -124,52 +106,43 @@ func (r *jSchemaRegistry) Get(name string) (JSchema, bool) {
 		logger.Schema.Debug().
 			Str("schema", name).
 			Msg("schema not found in registry")
+
+		for _, datasource := range r.externalSources {
+			if ok, err := datasource.Has(name); ok {
+				schema, err := datasource.Load(name)
+				if err != nil {
+					logger.Schema.Error().
+						Str("datasource", datasource.Name()).
+						Err(err).
+						Msg("failed to load schema from external source")
+					return nil, false
+				}
+				return schema, true
+			} else if err != nil {
+				logger.Schema.Error().
+					Str("datasource", datasource.Name()).
+					Err(err).
+					Msg("failed to check if schema exists in external source")
+				return nil, false
+			}
+		}
+
+		logger.Schema.Debug().
+			Str("schema", name).
+			Msg("schema not found in registry or external sources")
+
 		return nil, false
 	}
 
 	// If already loaded, return immediately
-	if entry.loaded {
+	if entry != nil {
 		logger.Schema.Debug().
 			Str("schema", name).
 			Msg("schema retrieved from registry (already loaded)")
-		return entry.schema, true
+		return entry, true
 	}
 
-	// Lazy load the schema using sync.Once for thread safety
-	entry.once.Do(func() {
-		logger.Schema.Info().
-			Str("schema", name).
-			Msg("lazy loading schema")
-
-		schema, err := entry.datasource.Load(name)
-		if err != nil {
-			logger.Schema.Error().
-				Str("schema", name).
-				Err(err).
-				Msg("failed to lazy load schema")
-			entry.err = err
-			return
-		}
-
-		// Make the schema immutable
-		immutableSchema := schema.Clone().Freeze()
-		entry.schema = immutableSchema
-		entry.loaded = true
-
-		logger.Schema.Debug().
-			Str("schema", name).
-			Msg("schema lazy loaded successfully")
-	})
-
-	if entry.err != nil {
-		logger.Schema.Error().
-			Str("schema", name).
-			Err(entry.err).
-			Msg("schema lazy loading failed")
-		return nil, false
-	}
-
-	return entry.schema, true
+	return nil, false
 }
 
 func (r *jSchemaRegistry) Unregister(name string) error {
@@ -197,29 +170,6 @@ func (r *jSchemaRegistry) Unregister(name string) error {
 	return nil
 }
 
-func (r *jSchemaRegistry) List() []JSchema {
-	r.mutex.RLock()
-	defer r.mutex.RUnlock()
-
-	schemas := make([]JSchema, 0, len(r.schemas))
-	for name, entry := range r.schemas {
-		// Only include schemas that have been loaded
-		if entry.loaded && entry.schema != nil {
-			schemas = append(schemas, entry.schema)
-		} else {
-			logger.Schema.Debug().
-				Str("schema", name).
-				Msg("skipping unloaded schema in list")
-		}
-	}
-
-	logger.Schema.Debug().
-		Int("count", len(schemas)).
-		Msg("listing loaded schemas")
-
-	return schemas
-}
-
 // RegisterSchema is a convenience function to register a schema in the global registry
 func RegisterSchema(schema JSchema) error {
 	return globalRegistry.Register(schema)
@@ -235,14 +185,9 @@ func ReplaceSchema(schema JSchema) error {
 	return globalRegistry.Replace(schema)
 }
 
-// RegisterImmutableSchema is a convenience function to register an immutable schema in the global registry
-func RegisterImmutableSchema(schema JSchema) error {
-	return globalRegistry.RegisterImmutable(schema)
-}
-
-// RegisterLazySchema is a convenience function to register a lazy schema in the global registry
-func RegisterLazySchema(schemaName string, datasource ExternalSchemaSource) error {
-	return globalRegistry.RegisterLazy(schemaName, datasource)
+// RegisterExternalSource is a convenience function to register a external source in the global registry
+func RegisterLazySchema(datasource ExternalSchemaSource) error {
+	return globalRegistry.RegisterExternalSource(datasource)
 }
 
 // Replace replaces an existing schema with a new one
@@ -274,10 +219,7 @@ func (r *jSchemaRegistry) Replace(schema JSchema) error {
 
 	// Make the schema immutable when replacing
 	immutableSchema := schema.Clone().Freeze()
-	r.schemas[schema.Name()] = &lazyEntry{
-		schema: immutableSchema,
-		loaded: true,
-	}
+	r.schemas[schema.Name()] = immutableSchema
 
 	logger.Schema.Debug().
 		Str("schema", schema.Name()).
@@ -320,10 +262,7 @@ func (r *jSchemaRegistry) RegisterImmutable(schema JSchema) error {
 		Str("schema", schema.Name()).
 		Msg("registering immutable schema")
 
-	r.schemas[schema.Name()] = &lazyEntry{
-		schema: schema,
-		loaded: true,
-	}
+	r.schemas[schema.Name()] = schema
 
 	logger.Schema.Debug().
 		Str("schema", schema.Name()).

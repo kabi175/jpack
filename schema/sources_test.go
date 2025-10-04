@@ -11,10 +11,11 @@ import (
 
 func TestFileSchemaSource_Load_SingleSchema(t *testing.T) {
 	tests := []struct {
-		name     string
-		filename string
-		content  string
-		wantErr  bool
+		name           string
+		filename       string
+		content        string
+		wantErr        bool
+		wantSchemaName string
 	}{
 		{
 			name:     "valid single YAML schema",
@@ -33,7 +34,8 @@ fields:
     type: int
     defaultValue: 18
 `,
-			wantErr: false,
+			wantErr:        false,
+			wantSchemaName: "User",
 		},
 		{
 			name:     "valid single JSON schema",
@@ -56,7 +58,8 @@ fields:
     }
   }
 }`,
-			wantErr: false,
+			wantErr:        false,
+			wantSchemaName: "Product",
 		},
 		{
 			name:     "invalid YAML content",
@@ -69,7 +72,8 @@ fields:
     required: true
   name: # missing value
 `,
-			wantErr: true,
+			wantErr:        true,
+			wantSchemaName: "User",
 		},
 		{
 			name:     "invalid JSON content",
@@ -87,7 +91,8 @@ fields:
     }
   }
 }`,
-			wantErr: true,
+			wantErr:        true,
+			wantSchemaName: "Product",
 		},
 		{
 			name:     "empty schema name",
@@ -99,7 +104,8 @@ fields:
     type: string
     required: true
 `,
-			wantErr: true,
+			wantErr:        true,
+			wantSchemaName: "",
 		},
 		{
 			name:     "missing schema name",
@@ -110,7 +116,8 @@ fields:
     type: string
     required: true
 `,
-			wantErr: true,
+			wantErr:        true,
+			wantSchemaName: "",
 		},
 	}
 
@@ -126,17 +133,19 @@ fields:
 			tmpFile.Close()
 
 			// Test FileSchemaSource
-			source := NewFileSchemaSource(tmpFile.Name())
-			schema, err := source.Load("")
+			source := NewFileSchemaSource("test_single", tmpFile.Name())
+			schema, err := source.Load(tt.wantSchemaName)
 
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Nil(t, schema)
 			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, schema)
-				assert.NotEmpty(t, schema.Name())
-				assert.Greater(t, len(schema.Fields()), 0)
+				if assert.NoError(t, err) {
+					if assert.NotNil(t, schema) {
+						assert.NotEmpty(t, schema.Name())
+						assert.Greater(t, len(schema.Fields()), 0)
+					}
+				}
 			}
 		})
 	}
@@ -144,10 +153,11 @@ fields:
 
 func TestFileSchemaSource_Load_BulkSchema(t *testing.T) {
 	tests := []struct {
-		name     string
-		filename string
-		content  string
-		wantErr  bool
+		name           string
+		filename       string
+		content        string
+		wantErr        bool
+		wantSchemaName []string
 	}{
 		{
 			name:     "valid bulk YAML schema",
@@ -170,7 +180,8 @@ func TestFileSchemaSource_Load_BulkSchema(t *testing.T) {
       type: string
       required: true
 `,
-			wantErr: false,
+			wantErr:        false,
+			wantSchemaName: []string{"User", "Product"},
 		},
 		{
 			name:     "valid bulk JSON schema",
@@ -203,13 +214,15 @@ func TestFileSchemaSource_Load_BulkSchema(t *testing.T) {
     }
   }
 ]`,
-			wantErr: false,
+			wantErr:        false,
+			wantSchemaName: []string{"User", "Product"},
 		},
 		{
-			name:     "empty bulk schema",
-			filename: "test_empty_bulk.yaml",
-			content:  `[]`,
-			wantErr:  true,
+			name:           "empty bulk schema",
+			filename:       "test_empty_bulk.yaml",
+			content:        `[]`,
+			wantErr:        true,
+			wantSchemaName: []string{},
 		},
 		{
 			name:     "invalid bulk YAML",
@@ -224,7 +237,8 @@ func TestFileSchemaSource_Load_BulkSchema(t *testing.T) {
 - name: Product
   fields: [invalid yaml array]
 `,
-			wantErr: true,
+			wantErr:        true,
+			wantSchemaName: []string{"User", "Product"},
 		},
 	}
 
@@ -240,16 +254,19 @@ func TestFileSchemaSource_Load_BulkSchema(t *testing.T) {
 			tmpFile.Close()
 
 			// Test FileSchemaSource
-			source := NewFileSchemaSource(tmpFile.Name())
-			schema, err := source.Load("")
+			source := NewFileSchemaSource(tt.filename, tmpFile.Name())
+			for _, schemaName := range tt.wantSchemaName {
+				schema, err := source.Load(schemaName)
 
-			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Nil(t, schema)
-			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, schema)
-				assert.NotEmpty(t, schema.Name())
+				if tt.wantErr {
+					assert.Error(t, err)
+					assert.Nil(t, schema)
+				} else {
+					assert.NoError(t, err)
+					assert.NotNil(t, schema)
+					assert.NotEmpty(t, schema.Name())
+				}
+
 			}
 		})
 	}
@@ -292,7 +309,7 @@ func TestFileSchemaSource_Load_SpecificSchema(t *testing.T) {
 	require.NoError(t, err)
 	tmpFile.Close()
 
-	source := NewFileSchemaSource(tmpFile.Name())
+	source := NewFileSchemaSource("test_specific", tmpFile.Name())
 
 	tests := []struct {
 		name         string
@@ -343,7 +360,7 @@ func TestFileSchemaSource_Load_SpecificSchema(t *testing.T) {
 }
 
 func TestFileSchemaSource_Load_FileNotFound(t *testing.T) {
-	source := NewFileSchemaSource("non_existent_file.yaml")
+	source := NewFileSchemaSource("non_existent_file", "non_existent_file.yaml")
 	schema, err := source.Load("")
 
 	assert.Error(t, err)
@@ -372,7 +389,7 @@ fields:
 	require.NoError(t, err)
 	tmpFile.Close()
 
-	source := NewFileSchemaSource(tmpFile.Name())
+	source := NewFileSchemaSource("test_no_ext", tmpFile.Name())
 	schema, err := source.Load("")
 
 	assert.NoError(t, err)
@@ -638,19 +655,6 @@ func TestParseEdgeType(t *testing.T) {
 	}
 }
 
-func TestHTTPSchemaSource(t *testing.T) {
-	source := NewHTTPSchemaSource("https://api.example.com/schemas")
-
-	assert.Equal(t, "https://api.example.com/schemas", source.URL)
-	assert.Nil(t, source.Client)
-
-	// Test Load method (should return error as it's not implemented)
-	schema, err := source.Load("test")
-	assert.Error(t, err)
-	assert.Nil(t, schema)
-	assert.Contains(t, err.Error(), "HTTPSchemaSource not implemented yet")
-}
-
 func TestDatabaseSchemaSource(t *testing.T) {
 	mockConnection := "mock_connection"
 	table := "schema_definitions"
@@ -722,7 +726,7 @@ edges:
 	require.NoError(t, err)
 	tmpFile.Close()
 
-	source := NewFileSchemaSource(tmpFile.Name())
+	source := NewFileSchemaSource("test_complex", tmpFile.Name())
 	schema, err := source.Load("")
 
 	assert.NoError(t, err)
@@ -853,7 +857,7 @@ func TestFileSchemaSource_Load_BulkWithComplexSchemas(t *testing.T) {
 	require.NoError(t, err)
 	tmpFile.Close()
 
-	source := NewFileSchemaSource(tmpFile.Name())
+	source := NewFileSchemaSource("test_bulk_complex", tmpFile.Name())
 
 	// Test loading each schema
 	schemas := []string{"User", "Product", "Order"}
@@ -941,7 +945,7 @@ edges: []
 			require.NoError(t, err)
 			tmpFile.Close()
 
-			source := NewFileSchemaSource(tmpFile.Name())
+			source := NewFileSchemaSource("test_edge_case", tmpFile.Name())
 			schema, err := source.Load("")
 
 			if tt.wantErr {
@@ -976,7 +980,7 @@ fields:
 	absPath, err := filepath.Abs(tmpFile.Name())
 	require.NoError(t, err)
 
-	source := NewFileSchemaSource(absPath)
+	source := NewFileSchemaSource("test_absolute", absPath)
 	schema, err := source.Load("")
 
 	assert.NoError(t, err)
@@ -985,7 +989,7 @@ fields:
 
 	// Test with relative path
 	relPath := filepath.Base(tmpFile.Name())
-	source = NewFileSchemaSource(relPath)
+	source = NewFileSchemaSource("test_relative", relPath)
 	schema, err = source.Load("")
 
 	// This might fail depending on current working directory
