@@ -1,3 +1,84 @@
+// Package mongo provides MongoDB integration for JPack.
+// It includes client management, repository creation, index management, and transaction support.
+//
+// The mongo package provides a high-level abstraction over the MongoDB Go driver,
+// making it easy to work with schemas and perform CRUD operations.
+//
+// Example:
+//
+//	// Create MongoDB client
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	defer client.Close(context.Background())
+//
+//	// Create and register schema
+//	userSchema := schema.NewSchemaBuilder("User").
+//		AddRequiredField("name", schema.JString, nil).
+//		AddRequiredUniqueField("email", schema.JString, nil).
+//		AddField("age", schema.JInt, 18).
+//		Build()
+//
+//	err = client.RegisterSchema(userSchema)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Create indexes
+//	err = client.CreateIndexesForSchema(context.Background(), "User")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Get repository
+//	userRepo, err := client.GetRepository("User")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Create and save user
+//	user := schema.NewJRecord().
+//		Set("id", "user_001").
+//		Set("name", "John Doe").
+//		Set("email", "john@example.com").
+//		Set("age", 25)
+//
+//	savedUser, err := userRepo.Save(context.Background(), user)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Query users
+//	criteria := repository.NewJCriteriaBuilder().
+//		WhereGreaterThanOrEqual("age", 18).
+//		OrderBy("name").
+//		SetLimit(10).
+//		Build()
+//
+//	users, err := userRepo.FindBy(context.Background(), criteria)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Use transactions
+//	txManager := client.GetTransactionManager()
+//	err = txManager.WithTransaction(context.Background(), func(ctx context.Context) error {
+//		// Perform multiple operations within transaction
+//		_, err := userRepo.Save(ctx, user)
+//		return err
+//	})
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Health check
+//	healthChecker := client.GetHealthChecker()
+//	healthy, err := healthChecker.CheckHealth(context.Background())
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	fmt.Printf("Database healthy: %v\n", healthy)
 package mongo
 
 import (
@@ -11,7 +92,23 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// MongoClient wraps the MongoDB client with additional functionality
+// MongoClient wraps the MongoDB client with additional functionality.
+// It provides schema management, repository creation, and database operations.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	defer client.Close(context.Background())
+//
+//	// Register schemas
+//	userSchema := schema.NewSchemaBuilder("User").Build()
+//	err = client.RegisterSchema(userSchema)
+//
+//	// Get repository
+//	userRepo, err := client.GetRepository("User")
 type MongoClient struct {
 	client       *mongo.Client
 	database     *mongo.Database
@@ -19,7 +116,16 @@ type MongoClient struct {
 	repositories map[string]*MongoRepository
 }
 
-// NewMongoClient creates a new MongoDB client
+// NewMongoClient creates a new MongoDB client.
+// It connects to MongoDB using the provided URI and database name.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	defer client.Close(context.Background())
 func NewMongoClient(uri, databaseName string) (*MongoClient, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -53,7 +159,21 @@ func NewMongoClient(uri, databaseName string) (*MongoClient, error) {
 	}, nil
 }
 
-// NewMongoClientWithOptions creates a new MongoDB client with custom options
+// NewMongoClientWithOptions creates a new MongoDB client with custom options.
+// This allows you to configure connection pooling, timeouts, and other MongoDB client options.
+//
+// Example:
+//
+//	clientOptions := options.Client().
+//		SetMaxPoolSize(100).
+//		SetMinPoolSize(10).
+//		SetMaxConnIdleTime(30 * time.Second)
+//
+//	client, err := mongo.NewMongoClientWithOptions(
+//		"mongodb://localhost:27017",
+//		"mydb",
+//		clientOptions,
+//	)
 func NewMongoClientWithOptions(uri, databaseName string, clientOptions *options.ClientOptions) (*MongoClient, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -87,17 +207,56 @@ func NewMongoClientWithOptions(uri, databaseName string, clientOptions *options.
 	}, nil
 }
 
-// GetClient returns the underlying MongoDB client
+// GetClient returns the underlying MongoDB client.
+// This provides direct access to the MongoDB Go driver client for advanced operations.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	mongoClient := client.GetClient()
+//	// Use mongoClient for advanced operations
 func (mc *MongoClient) GetClient() *mongo.Client {
 	return mc.client
 }
 
-// GetDatabase returns the database
+// GetDatabase returns the database.
+// This provides direct access to the MongoDB database for advanced operations.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	database := client.GetDatabase()
+//	// Use database for advanced operations
 func (mc *MongoClient) GetDatabase() *mongo.Database {
 	return mc.database
 }
 
-// RegisterSchema registers a schema and creates a repository
+// RegisterSchema registers a schema and creates a repository.
+// This makes the schema available for use and creates the corresponding MongoDB collection.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	userSchema := schema.NewSchemaBuilder("User").
+//		AddField("name", schema.JString, nil).
+//		Build()
+//
+//	err = client.RegisterSchema(userSchema)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
 func (mc *MongoClient) RegisterSchema(schema schema.JSchema) error {
 	if schema == nil {
 		logger.Mongo.Error().Msg("schema cannot be nil")
@@ -134,7 +293,32 @@ func (mc *MongoClient) RegisterSchema(schema schema.JSchema) error {
 	return nil
 }
 
-// GetRepository returns a repository for a schema
+// GetRepository returns a repository for a schema.
+// The repository provides CRUD operations for the schema.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Register schema first
+//	userSchema := schema.NewSchemaBuilder("User").Build()
+//	err = client.RegisterSchema(userSchema)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Get repository
+//	userRepo, err := client.GetRepository("User")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Use repository
+//	user := schema.NewJRecord().Set("id", "user_001").Set("name", "John")
+//	savedUser, err := userRepo.Save(context.Background(), user)
 func (mc *MongoClient) GetRepository(schemaName string) (*MongoRepository, error) {
 	repository, exists := mc.repositories[schemaName]
 	if !exists {
@@ -146,7 +330,30 @@ func (mc *MongoClient) GetRepository(schemaName string) (*MongoRepository, error
 	return repository, nil
 }
 
-// GetSchema returns a schema by name
+// GetSchema returns a schema by name.
+// This allows you to retrieve a previously registered schema.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Register schema
+//	userSchema := schema.NewSchemaBuilder("User").Build()
+//	err = client.RegisterSchema(userSchema)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Get schema
+//	retrievedSchema, err := client.GetSchema("User")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	fmt.Println(retrievedSchema.Name()) // "User"
 func (mc *MongoClient) GetSchema(schemaName string) (schema.JSchema, error) {
 	schema, exists := mc.schemas[schemaName]
 	if !exists {
@@ -158,7 +365,25 @@ func (mc *MongoClient) GetSchema(schemaName string) (schema.JSchema, error) {
 	return schema, nil
 }
 
-// ListSchemas returns all registered schema names
+// ListSchemas returns all registered schema names.
+// This provides a list of all schemas that have been registered with the client.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Register schemas
+//	userSchema := schema.NewSchemaBuilder("User").Build()
+//	orderSchema := schema.NewSchemaBuilder("Order").Build()
+//	client.RegisterSchema(userSchema)
+//	client.RegisterSchema(orderSchema)
+//
+//	// List schemas
+//	schemaNames := client.ListSchemas()
+//	fmt.Println(schemaNames) // ["User", "Order"]
 func (mc *MongoClient) ListSchemas() []string {
 	names := make([]string, 0, len(mc.schemas))
 	for name := range mc.schemas {
@@ -167,7 +392,27 @@ func (mc *MongoClient) ListSchemas() []string {
 	return names
 }
 
-// CreateIndexes creates indexes for all registered schemas
+// CreateIndexes creates indexes for all registered schemas.
+// This automatically creates indexes based on field constraints (unique, required, etc.).
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Register schema with unique field
+//	userSchema := schema.NewSchemaBuilder("User").
+//		AddRequiredUniqueField("email", schema.JString, nil).
+//		Build()
+//	client.RegisterSchema(userSchema)
+//
+//	// Create indexes for all schemas
+//	err = client.CreateIndexes(context.Background())
+//	if err != nil {
+//		log.Fatal(err)
+//	}
 func (mc *MongoClient) CreateIndexes(ctx context.Context) error {
 	for schemaName, schema := range mc.schemas {
 		collection := mc.database.Collection(schemaName)
@@ -184,7 +429,27 @@ func (mc *MongoClient) CreateIndexes(ctx context.Context) error {
 	return nil
 }
 
-// CreateIndexesForSchema creates indexes for a specific schema
+// CreateIndexesForSchema creates indexes for a specific schema.
+// This creates indexes for a single schema instead of all registered schemas.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Register schema
+//	userSchema := schema.NewSchemaBuilder("User").
+//		AddRequiredUniqueField("email", schema.JString, nil).
+//		Build()
+//	client.RegisterSchema(userSchema)
+//
+//	// Create indexes for specific schema
+//	err = client.CreateIndexesForSchema(context.Background(), "User")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
 func (mc *MongoClient) CreateIndexesForSchema(ctx context.Context, schemaName string) error {
 	schema, exists := mc.schemas[schemaName]
 	if !exists {
@@ -218,12 +483,38 @@ func (mc *MongoClient) ListCollections(ctx context.Context) ([]string, error) {
 	return cursor, nil
 }
 
-// Close closes the MongoDB connection
+// Close closes the MongoDB connection.
+// This should be called when the client is no longer needed to free resources.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	defer client.Close(context.Background())
+//
+//	// Use client...
 func (mc *MongoClient) Close(ctx context.Context) error {
 	return mc.client.Disconnect(ctx)
 }
 
-// Ping tests the connection to MongoDB
+// Ping tests the connection to MongoDB.
+// This can be used to verify that the client is connected to the database.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Test connection
+//	err = client.Ping(context.Background())
+//	if err != nil {
+//		log.Fatal("Connection failed:", err)
+//	}
+//	fmt.Println("Connected to MongoDB")
 func (mc *MongoClient) Ping(ctx context.Context) error {
 	return mc.client.Ping(ctx, nil)
 }
@@ -262,19 +553,74 @@ func (mc *MongoClient) GetStats(ctx context.Context) (map[string]interface{}, er
 	return stats, nil
 }
 
-// TransactionManager manages MongoDB transactions
+// TransactionManager manages MongoDB transactions.
+// It provides a high-level interface for executing operations within transactions.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	txManager := client.GetTransactionManager()
+//	err = txManager.ExecuteInTransaction(context.Background(), func(ctx context.Context) error {
+//		// Perform multiple operations within transaction
+//		userRepo, _ := client.GetRepository("User")
+//		orderRepo, _ := client.GetRepository("Order")
+//
+//		user := schema.NewJRecord().Set("id", "user_001").Set("name", "John")
+//		_, err := userRepo.Save(ctx, user)
+//		if err != nil {
+//			return err
+//		}
+//
+//		order := schema.NewJRecord().Set("id", "order_001").Set("user_id", "user_001")
+//		_, err = orderRepo.Save(ctx, order)
+//		return err
+//	})
 type TransactionManager struct {
 	client *MongoClient
 }
 
-// NewTransactionManager creates a new transaction manager
+// NewTransactionManager creates a new transaction manager.
+// This is typically called internally by the MongoClient.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	txManager := mongo.NewTransactionManager(client)
 func NewTransactionManager(client *MongoClient) *TransactionManager {
 	return &TransactionManager{
 		client: client,
 	}
 }
 
-// ExecuteInTransaction executes a function within a transaction
+// ExecuteInTransaction executes a function within a transaction.
+// All operations within the function are executed atomically.
+//
+// Example:
+//
+//	txManager := client.GetTransactionManager()
+//	err = txManager.ExecuteInTransaction(context.Background(), func(ctx context.Context) error {
+//		// All operations here are atomic
+//		userRepo, _ := client.GetRepository("User")
+//		orderRepo, _ := client.GetRepository("Order")
+//
+//		user := schema.NewJRecord().Set("id", "user_001").Set("name", "John")
+//		_, err := userRepo.Save(ctx, user)
+//		if err != nil {
+//			return err // Transaction will be rolled back
+//		}
+//
+//		order := schema.NewJRecord().Set("id", "order_001").Set("user_id", "user_001")
+//		_, err = orderRepo.Save(ctx, order)
+//		return err
+//	})
 func (tm *TransactionManager) ExecuteInTransaction(ctx context.Context, fn func(context.Context) error) error {
 	session, err := tm.client.client.StartSession()
 	if err != nil {
@@ -299,24 +645,73 @@ func (tm *TransactionManager) ExecuteInTransaction(ctx context.Context, fn func(
 	return nil
 }
 
-// GetTransactionManager returns a transaction manager for this client
+// GetTransactionManager returns a transaction manager for this client.
+// This provides access to transaction functionality.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	txManager := client.GetTransactionManager()
+//	err = txManager.ExecuteInTransaction(context.Background(), func(ctx context.Context) error {
+//		// Transaction operations
+//		return nil
+//	})
 func (mc *MongoClient) GetTransactionManager() *TransactionManager {
 	return NewTransactionManager(mc)
 }
 
-// HealthChecker checks the health of the MongoDB connection
+// HealthChecker checks the health of the MongoDB connection.
+// It provides methods to verify that the database is accessible and responsive.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	healthChecker := client.GetHealthChecker()
+//	err = healthChecker.CheckHealth(context.Background())
+//	if err != nil {
+//		log.Fatal("Database health check failed:", err)
+//	}
+//	fmt.Println("Database is healthy")
 type HealthChecker struct {
 	client *MongoClient
 }
 
-// NewHealthChecker creates a new health checker
+// NewHealthChecker creates a new health checker.
+// This is typically called internally by the MongoClient.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	healthChecker := mongo.NewHealthChecker(client)
 func NewHealthChecker(client *MongoClient) *HealthChecker {
 	return &HealthChecker{
 		client: client,
 	}
 }
 
-// CheckHealth checks the health of the MongoDB connection
+// CheckHealth checks the health of the MongoDB connection.
+// It performs a ping and verifies that collections can be listed.
+//
+// Example:
+//
+//	healthChecker := client.GetHealthChecker()
+//	err = healthChecker.CheckHealth(context.Background())
+//	if err != nil {
+//		log.Fatal("Database health check failed:", err)
+//	}
+//	fmt.Println("Database is healthy")
 func (hc *HealthChecker) CheckHealth(ctx context.Context) error {
 	// Ping the database
 	if err := hc.client.Ping(ctx); err != nil {
@@ -338,7 +733,21 @@ func (hc *HealthChecker) CheckHealth(ctx context.Context) error {
 	return nil
 }
 
-// GetHealthChecker returns a health checker for this client
+// GetHealthChecker returns a health checker for this client.
+// This provides access to health checking functionality.
+//
+// Example:
+//
+//	client, err := mongo.NewMongoClient("mongodb://localhost:27017", "mydb")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	healthChecker := client.GetHealthChecker()
+//	err = healthChecker.CheckHealth(context.Background())
+//	if err != nil {
+//		log.Fatal("Database health check failed:", err)
+//	}
 func (mc *MongoClient) GetHealthChecker() *HealthChecker {
 	return NewHealthChecker(mc)
 }

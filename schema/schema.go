@@ -1,3 +1,48 @@
+// Package schema provides schema definition and management for JPack.
+// It includes immutable schemas, field definitions, relationships, and validation.
+//
+// The schema package provides a flexible system for defining data structures
+// with validation, relationships, and type safety. All schemas are immutable
+// by default, ensuring thread safety and preventing accidental modifications.
+//
+// Example:
+//
+//	// Create a user schema
+//	userSchema := schema.NewSchemaBuilder("User").
+//		AddRequiredField("name", schema.JString, nil).
+//		AddRequiredUniqueField("email", schema.JString, nil).
+//		AddField("age", schema.JInt, 18).
+//		AddValidation(func(ctx context.Context, rec schema.JRecord) error {
+//			age, ok := rec.Get("age").(int)
+//			if ok && age < 18 {
+//				return fmt.Errorf("age must be at least 18")
+//			}
+//			return nil
+//		}).
+//		Build()
+//
+//	// Validate a record
+//	user := schema.NewJRecord().
+//		Set("name", "John Doe").
+//		Set("email", "john@example.com").
+//		Set("age", 25)
+//
+//	err := userSchema.Validate(context.Background(), user)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Update schema (creates new instance)
+//	updatedSchema := userSchema.Update(func(sb *schema.SchemaBuilder) {
+//		sb.AddField("phone", schema.JString, nil)
+//	})
+//
+//	// Create relationships
+//	orderSchema := schema.NewSchemaBuilder("Order").
+//		AddField("total", schema.JFloat64, 0.0).
+//		AddRef("user", userSchema).
+//		AddEdge(schema.NewJEdge("user_orders", userSchema, orderSchema, schema.EdgeOneToMany)).
+//		Build()
 package schema
 
 import (
